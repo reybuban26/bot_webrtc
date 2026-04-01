@@ -1,0 +1,326 @@
+/* ═══════════════════════════════════════════════════════
+   Custom Filament v4 Admin Theme
+   Light + Dark Mode — matches /chat and /login design
+   ═══════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ── Font everywhere ─────────────────────────────────── */
+body.fi-body,
+body.fi-body * {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   LIGHT MODE  (html:not(.dark))
+   ═══════════════════════════════════════════════════════ */
+html:not(.dark) body.fi-body {
+  background: #f4f6fb !important;
+  color: #111827 !important;
+}
+
+/* Login page background */
+html:not(.dark) .fi-simple-main-ctn {
+  background: #f4f6fb !important;
+  position: relative !important;
+}
+html:not(.dark) .fi-simple-main-ctn::before {
+  content: '' !important;
+  position: fixed !important; inset: 0 !important; pointer-events: none !important;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 20%, rgba(91,94,244,.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 80%, rgba(124,127,247,.06) 0%, transparent 60%) !important;
+}
+
+/* Outer wrapper — transparent, no border, no shadow */
+html:not(.dark) .fi-simple-main.fi-width-lg {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+/* Inner card — the actual white card */
+html:not(.dark) .fi-simple-page {
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,.07) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,.08), 0 1px 4px rgba(0,0,0,.04) !important;
+  padding: 40px 38px !important;
+}
+
+/* Inputs */
+html:not(.dark) .fi-input-wrp {
+  background: #f9fafb !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 10px !important;
+}
+html:not(.dark) .fi-input-wrp:focus-within {
+  border-color: #5b5ef4 !important;
+  box-shadow: 0 0 0 3px rgba(91,94,244,.12) !important;
+  background: #ffffff !important;
+}
+html:not(.dark) .fi-input-wrp-content-ctn input,
+html:not(.dark) .fi-input {
+  background: transparent !important;
+  color: #111827 !important;
+}
+
+/* Button */
+html:not(.dark) .fi-btn.fi-ac-btn-action,
+html:not(.dark) button.fi-btn {
+  background: #5b5ef4 !important;
+  border-radius: 10px !important;
+  color: #ffffff !important;
+}
+html:not(.dark) .fi-btn.fi-ac-btn-action:hover,
+html:not(.dark) button.fi-btn:hover {
+  background: #4d50e0 !important;
+  box-shadow: 0 4px 20px rgba(91,94,244,.35) !important;
+}
+
+/* Main layout */
+html:not(.dark) .fi-main,
+html:not(.dark) main.fi-main {
+  background: #f4f6fb !important;
+}
+
+/* Topbar */
+html:not(.dark) nav.fi-topbar {
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(0,0,0,.07) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.04) !important;
+}
+
+/* Sidebar */
+html:not(.dark) .fi-sidebar,
+html:not(.dark) aside.fi-sidebar {
+  background: #ffffff !important;
+  border-right: 1px solid rgba(0,0,0,.07) !important;
+}
+html:not(.dark) .fi-sidebar-header {
+  border-bottom: 1px solid rgba(0,0,0,.07) !important;
+}
+html:not(.dark) .fi-sidebar-item-button {
+  color: #6b7280 !important;
+  border-radius: 9px !important;
+}
+html:not(.dark) .fi-sidebar-item-button:hover {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+}
+html:not(.dark) .fi-sidebar-item-button[aria-current="page"] {
+  background: rgba(91,94,244,.1) !important;
+  color: #5b5ef4 !important;
+}
+
+/* Page heading */
+html:not(.dark) .fi-page-header-heading {
+  font-size: 1.4rem !important;
+  font-weight: 700 !important;
+  color: #111827 !important;
+}
+
+/* Cards / Widgets */
+html:not(.dark) .fi-wi,
+html:not(.dark) .fi-section,
+html:not(.dark) .fi-wi-stats-overview-stat {
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,.07) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 1px 6px rgba(0,0,0,.04) !important;
+}
+html:not(.dark) .fi-wi-stats-overview-stat-label { color: #9ca3af !important; }
+html:not(.dark) .fi-wi-stats-overview-stat-value { color: #111827 !important; }
+html:not(.dark) .fi-wi-stats-overview-stat-description { color: #5b5ef4 !important; }
+
+/* Tables */
+html:not(.dark) .fi-ta-ctn,
+html:not(.dark) .fi-section {
+  background: #ffffff !important;
+}
+html:not(.dark) th {
+  background: #f9fafb !important;
+  color: #9ca3af !important;
+  border-color: rgba(0,0,0,.07) !important;
+}
+html:not(.dark) td {
+  color: #374151 !important;
+  border-color: rgba(0,0,0,.05) !important;
+}
+
+/* Dropdowns */
+html:not(.dark) .fi-dropdown-list {
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,.08) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,.1) !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   DARK MODE  (html.dark)
+   ═══════════════════════════════════════════════════════ */
+html.dark body.fi-body {
+  background: #0f1117 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Login page background */
+html.dark .fi-simple-main-ctn {
+  background: #0f1117 !important;
+  position: relative !important;
+}
+html.dark .fi-simple-main-ctn::before {
+  content: '' !important;
+  position: fixed !important; inset: 0 !important; pointer-events: none !important;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 20%, rgba(99,102,241,.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 80%, rgba(129,140,248,.07) 0%, transparent 60%) !important;
+}
+
+/* Outer wrapper — transparent */
+html.dark .fi-simple-main.fi-width-lg {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+/* Inner card — dark card */
+html.dark .fi-simple-page {
+  background: #1a1f2e !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 4px 32px rgba(0,0,0,.4) !important;
+  padding: 40px 38px !important;
+}
+
+/* Inputs in dark */
+html.dark .fi-input-wrp {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  border-radius: 10px !important;
+}
+html.dark .fi-input-wrp:focus-within {
+  border-color: #818cf8 !important;
+  box-shadow: 0 0 0 3px rgba(129,140,248,.15) !important;
+}
+html.dark .fi-input-wrp-content-ctn input,
+html.dark .fi-input {
+  background: transparent !important;
+  color: #f1f5f9 !important;
+}
+
+/* Main layout */
+html.dark .fi-main,
+html.dark main.fi-main {
+  background: #0f1117 !important;
+}
+
+/* Topbar */
+html.dark nav.fi-topbar {
+  background: #161b28 !important;
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar */
+html.dark .fi-sidebar,
+html.dark aside.fi-sidebar {
+  background: #161b28 !important;
+  border-right: 1px solid rgba(255,255,255,.06) !important;
+}
+html.dark .fi-sidebar-header {
+  border-bottom: 1px solid rgba(255,255,255,.06) !important;
+}
+html.dark .fi-sidebar-item-button {
+  color: #94a3b8 !important;
+  border-radius: 9px !important;
+}
+html.dark .fi-sidebar-item-button:hover {
+  background: rgba(255,255,255,.06) !important;
+  color: #f1f5f9 !important;
+}
+html.dark .fi-sidebar-item-button[aria-current="page"] {
+  background: rgba(129,140,248,.15) !important;
+  color: #818cf8 !important;
+}
+
+/* Cards / Widgets */
+html.dark .fi-wi,
+html.dark .fi-section,
+html.dark .fi-wi-stats-overview-stat {
+  background: #1a1f2e !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 1px 8px rgba(0,0,0,.3) !important;
+}
+html.dark .fi-wi-stats-overview-stat-label { color: #64748b !important; }
+html.dark .fi-wi-stats-overview-stat-value { color: #f1f5f9 !important; }
+html.dark .fi-wi-stats-overview-stat-description { color: #818cf8 !important; }
+
+/* Tables */
+html.dark .fi-ta-ctn,
+html.dark .fi-section {
+  background: #1a1f2e !important;
+}
+html.dark th {
+  background: #1e2435 !important;
+  color: #64748b !important;
+  border-color: rgba(255,255,255,.06) !important;
+}
+html.dark td {
+  color: #cbd5e1 !important;
+  border-color: rgba(255,255,255,.04) !important;
+}
+html.dark tr:hover td {
+  background: rgba(255,255,255,.03) !important;
+}
+
+/* Dropdowns */
+html.dark .fi-dropdown-list {
+  background: #1e2435 !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,.4) !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   INJECTED LOGO HEADER  (both modes)
+   ═══════════════════════════════════════════════════════ */
+
+/* Hide default Filament brand + heading */
+.fi-simple-header-brand,
+.fi-simple-header .fi-logo,
+.fi-simple-header-heading,
+.fi-simple-header-subheading {
+  display: none !important;
+}
+
+/* Logo row */
+.custom-login-header { margin-bottom: 24px; }
+.logo-row {
+  display: flex; align-items: center; gap: 11px;
+  margin-bottom: 22px;
+}
+.logo-icon-box {
+  width: 40px; height: 40px; border-radius: 11px;
+  background: #5b5ef4;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(91,94,244,.35);
+}
+.logo-icon-box svg { width: 20px; height: 20px; color: #fff; stroke: #fff; }
+.logo-text-block { display: flex; flex-direction: column; gap: 1px; }
+.logo-app-name { font-size: 1rem; font-weight: 700; color: #111827; line-height: 1.2; }
+.logo-app-sub  { font-size: .68rem; color: #9ca3af; }
+html.dark .logo-app-name { color: #f1f5f9 !important; }
+html.dark .logo-app-sub  { color: #64748b !important; }
+
+.custom-welcome {
+  font-size: 1.5rem; font-weight: 800;
+  color: #111827; margin: 0 0 4px; line-height: 1.25;
+}
+.custom-subtitle { font-size: .83rem; color: #6b7280; margin: 0; }
+html.dark .custom-welcome  { color: #f1f5f9 !important; }
+html.dark .custom-subtitle { color: #94a3b8 !important; }
+
+/* ── Scrollbars ──────────────────────────────────────── */
+html:not(.dark) * { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.1) transparent; }
+html.dark      * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.1) transparent; }
