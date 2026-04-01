@@ -11,7 +11,8 @@
         "laravel/framework": "^12.0",
         "laravel/reverb": "^1.0",
         "laravel/tinker": "^2.10.1",
-        "monyxie/agora-token-builder": "^0.1.0"
+        "monyxie/agora-token-builder": "^0.1.0",
+        "smalot/pdfparser": "^2.12"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

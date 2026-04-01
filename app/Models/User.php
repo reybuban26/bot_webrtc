@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {
@@ -56,7 +57,12 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     /** Return a public URL for the avatar, or null if not set. */
     public function getAvatarUrlAttribute(): ?string
     {
-        return $this->avatar ? asset('storage/' . $this->avatar) : null;
+        if (!$this->avatar) {
+        return null;
+    }
+
+        // Ito ang mag-ge-generate ng tamang URL (http://127.0.0.1:8000/storage/avatars/filename.gif)
+        return asset(Storage::url($this->avatar));
     }
 
     /**
