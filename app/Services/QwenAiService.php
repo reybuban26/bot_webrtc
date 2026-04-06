@@ -40,6 +40,41 @@ class QwenAiService
         return ! empty($this->qwenApiKey);
     }
 
+    /**
+     * Analyze user sentiment for Auto-Routing
+     */
+    public function analyzeSentiment(string $message): string
+    {
+        if (empty($this->qwenApiKey) || empty($message)) return 'NEUTRAL';
+
+        try {
+            $payload = [
+                'model' => self::CHAT_MODEL,
+                'messages' => [
+                    [
+                        'role' => 'system', 
+                        'content' => 'Analyze the sentiment. Output STRICTLY ONE WORD: HAPPY, NEUTRAL, ANGRY, or FRUSTRATED.'
+                    ],
+                    ['role' => 'user', 'content' => $message],
+                ],
+                'max_tokens' => 10,
+                'temperature' => 0.1,
+            ];
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->qwenApiKey,
+                'Content-Type'  => 'application/json',
+            ])->timeout(10)->post(self::CHAT_ENDPOINT, $payload);
+
+            if ($response->successful()) {
+                return strtoupper(trim(trim($response->json('choices.0.message.content')), '"\'.,[]'));
+            }
+        } catch (\Throwable $e) {
+            Log::error('[Sentiment] Error: ' . $e->getMessage());
+        }
+        return 'NEUTRAL';
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // CHAT  —  qwen3.5-plus  (DashScope Singapore)
     // ──────────────────────────────────────────────────────────────────────────

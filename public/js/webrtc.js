@@ -32,6 +32,8 @@ window.webrtcApp = function () {
         _pollTimer: null,           // interval handle for status/pending poll
         _activeCallPollTimer: null,  // polls DB while call is active (fallback for missed user-left)
         _incomingPollTimer: null,    // user polls for admin-initiated incoming calls
+        _visibilityPaused: false,    // tracks if polls were paused due to tab hidden
+        _pausedTimers: [],           // stores timer refs that were paused
 
         appId:  document.querySelector('meta[name="agora-app-id"]')?.content || '',
         userRole: document.querySelector('meta[name="user-role"]')?.content || 'user',
@@ -58,6 +60,49 @@ window.webrtcApp = function () {
             } else {
                 this._startUserIncomingPoll();
             }
+
+            // Pause non-critical polls when tab is hidden
+            this._setupVisibilityHandler();
+        },
+
+        _setupVisibilityHandler() {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    this._pausePolls();
+                } else {
+                    this._resumePolls();
+                }
+            });
+        },
+
+        _pausePolls() {
+            this._visibilityPaused = true;
+            // Pause non-critical polls (keep active-call poll running during calls)
+            if (this._pollTimer) {
+                this._pausedTimers.push({ type: 'poll', timer: this._pollTimer });
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
+            }
+            if (this._incomingPollTimer) {
+                this._pausedTimers.push({ type: 'incoming', timer: this._incomingPollTimer });
+                clearInterval(this._incomingPollTimer);
+                this._incomingPollTimer = null;
+            }
+        },
+
+        _resumePolls() {
+            if (!this._visibilityPaused) return;
+            this._visibilityPaused = false;
+
+            for (const { type } of this._pausedTimers) {
+                if (type === 'poll') {
+                    if (this.userRole === 'admin') this._startAdminPoll();
+                    else this._startUserPoll();
+                } else if (type === 'incoming') {
+                    this._startUserIncomingPoll();
+                }
+            }
+            this._pausedTimers = [];
         },
 
         // ── CSRF helper ───────────────────────────────────────────
@@ -952,6 +997,8 @@ window.webrtcApp = function () {
                 clearInterval(this._pollTimer);
                 this._pollTimer = null;
             }
+            // Also clear from paused timers if present
+            this._pausedTimers = this._pausedTimers.filter(t => t.type !== 'poll');
         },
     };
 };

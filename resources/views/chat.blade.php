@@ -25,13 +25,49 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=3"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=5"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
 
   /* Inline extras that depend on server-side theme */
   body.loaded { transition: background .3s, color .3s; }
+
+  /* ── MESSAGE BUBBLE & ATTACHMENT STYLES ── */
+  .msg-attachment-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .att-card {
+      background: rgba(0, 0, 0, 0.12);
+      padding: 6px 10px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .att-format {
+      font-weight: 800;
+      font-size: 0.65rem;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 2px 5px;
+      border-radius: 4px;
+      color: #fff;
+      white-space: nowrap;
+  }
+  .att-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      opacity: 0.9;
+  }
 
   /* Toast notification */
   #toast {
@@ -457,8 +493,6 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
       </div>
       <div class="header-actions">
-
-
         <button class="icon-btn" title="Toggle sidebar" @click="$store.sidebar.open = !$store.sidebar.open">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
@@ -467,7 +501,6 @@
 
     <div id="messages-container" x-ref="msgContainer">
 
-      <!-- Greeting empty state -->
       <div class="greeting-state" x-show="messages.length === 0 && !isLoading">
         <div class="greeting-orb">
           <div class="orb-glow"></div>
@@ -485,13 +518,26 @@
         </div>
       </div>
 
-      <!-- Messages -->
       <template x-for="msg in messages" :key="msg.id">
         <div class="message" :class="msg.role">
           <div class="msg-avatar" x-text="msg.role === 'user' ? 'U' : 'AI'"></div>
           <div class="msg-body">
-            <div class="msg-bubble" x-show="msg.role === 'user'" x-text="msg.content"></div>
-            <div class="msg-bubble" x-show="msg.role === 'assistant'" x-html="renderContent(msg.content)"></div>
+            <div class="msg-bubble" :class="msg.role">
+                <template x-if="msg.attachments && msg.attachments.length > 0">
+                    <div class="msg-attachment-list" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.15);">
+                        <template x-for="att in msg.attachments">
+                            <div class="att-card" style="background: rgba(0,0,0,0.12); padding: 6px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.08);">
+                                <span class="att-format" x-text="att.format" style="font-weight: 800; font-size: 0.65rem; background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 4px; color: #fff; text-transform: uppercase;"></span>
+                                <span class="att-name" x-text="att.name" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; opacity: 0.9;"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <div x-show="msg.role === 'user'" x-text="msg.content" style="white-space: pre-wrap; font-family: inherit;"></div>
+                <div x-show="msg.role === 'assistant'" x-html="msg.renderedHtml || renderContent(msg.content)"></div>
+            </div>
+            
             <div class="msg-meta">
               <span x-text="msg.time"></span>
               <button class="msg-speak-btn" x-show="msg.role === 'assistant'" @click="speakMessage(msg.content)" title="Read aloud">
@@ -502,7 +548,6 @@
         </div>
       </template>
 
-      <!-- Typing -->
       <div class="message assistant" x-show="isLoading" x-transition>
         <div class="msg-avatar">AI</div>
         <div class="msg-body">
@@ -513,24 +558,30 @@
       </div>
     </div>
 
-    <!-- Input -->
     <div id="input-area">
-      <div class="input-wrapper" style="position: relative;">
-        
+      <div class="input-wrapper" style="display: flex; flex-direction: column; gap: 8px;">
+
         <style>
           .input-plus-menu { position: relative; display: flex; align-items: center; }
           .plus-dropdown { position: absolute; bottom: calc(100% + 12px); left: 0; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); display: flex; flex-direction: column; min-width: 180px; z-index: 50; }
           .plus-dropdown-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; color: var(--txt); font-size: 0.85rem; font-weight: 500; background: transparent; border: none; border-radius: 8px; cursor: pointer; text-align: left; width: 100%; transition: background 0.15s; }
           .plus-dropdown-item:hover { background: rgba(100, 116, 139, 0.1); }
-          .file-previews { display: flex; gap: 8px; padding: 0 12px 12px; flex-wrap: wrap; margin-top: -8px; }
+          /* Layout fix para hindi pumatong */
+          .file-previews { display: flex; gap: 8px; padding: 5px 12px; flex-wrap: wrap; }
           .file-preview-item { display: flex; align-items: center; gap: 8px; background: rgba(100, 116, 139, 0.08); border: 1px solid rgba(100, 116, 139, 0.2); border-radius: 8px; padding: 6px 12px; font-size: 0.75rem; font-weight: 500; color: var(--txt); }
-          .file-preview-item button { display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: none; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-weight: bold; font-size: 0.9rem; line-height: 1; padding: 0; margin-left: 4px; }
-          .file-preview-item button:hover { background: #ef4444; color: white; }
         </style>
+        
+        <div class="file-previews" x-show="stagedFiles.length > 0" style="display: flex; gap: 8px; flex-wrap: wrap; padding: 5px 10px;">
+           <template x-for="(f, idx) in stagedFiles" :key="idx">
+             <div class="file-preview-item">
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+               <span x-text="f.name" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+               <button @click="removeFile(idx)">&times;</button>
+             </div>
+           </template>
+        </div>
 
         <div class="input-top-row">
-          
-          <!-- + Menu Dropdown -->
           <div class="input-plus-menu" x-data="{ plusOpen: false }" @click.away="plusOpen = false">
             <button class="input-attach-btn" @click="plusOpen = !plusOpen" title="Extra Features" style="color: var(--accent);">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/></svg>
@@ -551,38 +602,21 @@
             </div>
           </div>
 
-          <!-- Attach File -->
-          <button class="input-attach-btn" @click="$refs.fileInput.click()" title="Attach file" style="margin-left: -4px;">
+          <button class="input-attach-btn" @click="$refs.fileInput.click()" title="Attach file">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
           </button>
-          <input type="file" x-ref="fileInput" @change="handleFileUpload" style="display: none;" accept=".txt,.md,.csv,.json,.js,.php,.html,.css,.log" multiple>
 
-          <!-- Text Input -->
-          <textarea id="message-input" x-ref="input" x-model="inputText"
-                    @keydown="handleEnter($event)" @input="autoResize()"
-                    placeholder="Initiate a query or send a command to the AI…" rows="1" style="flex:1;"></textarea>
+          <input type="file" x-ref="fileInput" @change="handleFileUpload" style="display: none;" accept=".pdf,.txt,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.csv,.json" multiple>
 
-          <!-- Voice Mic (Moved beside Send) -->
-          <button class="input-attach-btn" @click="toggleVoiceInput()" :class="{ active: isListening }" title="Voice Input" style="margin-right: 4px;">
+          <textarea id="message-input" x-ref="input" x-model="inputText" @keydown.enter.prevent="sendMessage()" @input="autoResize()" placeholder="Initiate a query…" rows="1" style="flex:1;"></textarea>
+
+          <button class="input-attach-btn" @click="toggleVoiceInput()" :class="{ active: isListening }" title="Voice Input">
              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
           </button>
 
-          <!-- Send -->
           <button class="input-btn btn-send" @click="sendMessage()" :disabled="(!inputText.trim() && stagedFiles.length === 0) || isLoading">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
           </button>
-
-        </div>
-
-        <!-- File Previews inline inside the input wrapper -->
-        <div class="file-previews" x-show="stagedFiles && stagedFiles.length > 0" style="display: none;">
-           <template x-for="(f, idx) in stagedFiles" :key="idx">
-             <div class="file-preview-item">
-               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-               <span x-text="f.name" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
-               <button @click="removeFile(idx)">&times;</button>
-             </div>
-           </template>
         </div>
 
       </div>
@@ -982,7 +1016,7 @@
   <span id="toast-msg"></span>
 </div>
 
-<script src="{{ asset('js/chatbot.js') }}?v=19"></script>
+<script src="{{ asset('js/chatbot.js') }}?v=22"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/support.js') }}?v=10"></script>
 <script>

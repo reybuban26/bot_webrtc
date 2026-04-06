@@ -70,6 +70,22 @@ window.chatApp = function () {
             this.initSpeechRecognition();
             this.$nextTick(() => this.scrollToBottom());
             this.loadProfile();
+
+            // Pause heavy polling when tab is hidden
+            this._setupVisibilityHandler();
+        },
+
+        _setupVisibilityHandler() {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    this._wasListening = this.isListening;
+                    if (this.isListening && this.recognition) {
+                        this.recognition.stop();
+                    }
+                } else if (this._wasListening) {
+                    try { this.recognition?.start(); } catch(_) {}
+                }
+            });
         },
 
         // ── Theme ────────────────────────────────────────────────────
@@ -143,6 +159,7 @@ window.chatApp = function () {
                 this.messages = d.messages.map(m => ({
                     id: m.id, role: m.role,
                     content: m.content, audio_url: m.audio_url,
+                    attachments: m.attachments || [],
                     time: this.formatTime(m.created_at),
                 }));
             } catch (_) {}
@@ -218,9 +235,135 @@ window.chatApp = function () {
         },
 
         // ── Sending Messages ──────────────────────────────────────────
+        // async sendMessage() {
+        //     const rawText = this.inputText.trim();
+        //     let promptText = rawText;
+        //     const originalFileCount = this.stagedFiles.length;
+
+        //     if ((!rawText && originalFileCount === 0) || this.isLoading) return;
+
+        //     if (!this.sessionToken) {
+        //         try {
+        //             await this._createSession();
+        //         } catch (e) {
+        //             this.messages.push({
+        //                 id: Date.now(), role: 'assistant',
+        //                 content: '⚠️ Could not start a chat session. Please try again.',
+        //                 time: this.formatTime(new Date().toISOString()),
+        //             });
+        //             return;
+        //         }
+        //     }
+
+        //     // Optimistic UI for chat bubble
+        //     let displayContent = rawText;
+        //     if (originalFileCount > 0) {
+        //         const names = this.stagedFiles.map(f => f.name).join(', ');
+        //         displayContent += rawText ? `\n\n*(Attached: ${names})*` : `*(Attached: ${names})*`;
+        //     }
+
+        //     this.messages.push({
+        //         id: Date.now(), role: 'user',
+        //         content: rawText + (this.stagedFiles.length > 0 ? "\n*(Uploading files...)*" : ""),
+        //         time: this.formatTime(new Date().toISOString()),
+        //     });
+        //     this.inputText = '';
+        //     this.autoResize();
+        //     this.$nextTick(() => this.scrollToBottom());
+
+        //     this.isLoading = true;
+        //     this.statusMode = 'loading';
+
+        //     const formData = new FormData();
+        //     formData.append('message', rawText);
+        //     formData.append('session_token', this.sessionToken);
+        //     this.stagedFiles.forEach(f => formData.append('files[]', f));
+
+        //     this.inputText = '';
+        //     this.stagedFiles = [];
+        //     this.isLoading = true;
+        //     this.$nextTick(() => this.scrollToBottom());
+            
+        //     // Read files into memory before sending
+        //     if (originalFileCount > 0) {
+        //         this.statusText = 'Reading files…';
+        //         try {
+        //             let fileTexts = await Promise.all(this.stagedFiles.map((file) => {
+        //                 return new Promise((resolve) => {
+        //                     const reader = new FileReader();
+        //                     reader.onload = (e) => resolve(`\n\n--- [Attached File: ${file.name}] ---\n${e.target.result}\n---`);
+        //                     reader.onerror = () => resolve(`\n\n--- [Attached File: ${file.name}] ---\n(Could not read file contents)\n---`);
+        //                     reader.readAsText(file);
+        //                 });
+        //             }));
+        //             const combined = fileTexts.join('');
+        //             if (!promptText) promptText = "Please analyze the attached files." + combined;
+        //             else promptText += combined;
+        //         } catch (err) {
+        //             console.error("File Read Error:", err);
+        //         }
+        //         this.stagedFiles = []; // clear staging area
+        //     }
+
+        //     this.statusText = 'AI is thinking…';
+
+        //     try {
+        //         const r = await fetch('/api/chat/send', {
+        //             method: 'POST',
+        //             headers: {
+        //                 'Content-Type': 'application/json',
+        //                 'X-CSRF-TOKEN': CSRF,
+        //             },
+        //             body: JSON.stringify({ message: promptText, session_token: this.sessionToken }),
+        //         });
+
+        //         if (!r.ok) {
+        //             const err = await r.json().catch(() => ({}));
+        //             throw new Error(err.message || `Server error ${r.status}`);
+        //         }
+
+        //         const d = await r.json();
+
+        //         // Stop typing indicator FIRST, then stream in the response
+        //         this.isLoading = false;
+        //         this.statusMode = 'online';
+        //         this.statusText = 'Ready';
+
+        //         const fullContent = d.message.content;
+        //         const msgId = d.message.id ?? Date.now();
+
+        //         // Add empty placeholder, then typewrite into it
+        //         this.messages.push({
+        //             id: msgId, role: 'assistant',
+        //             content: '', time: this.formatTime(d.message.created_at),
+        //         });
+        //         this.$nextTick(() => this.scrollToBottom());
+
+        //         // Auto-speak using Web Speech immediately (CONCURRENT with typing effect)
+        //         this.speakWebSpeech(fullContent);
+
+        //         await this.typewriteMessage(msgId, fullContent);
+
+        //         if (d.session_title && d.session_title !== 'New Chat') {
+        //             this.sessionTitle = d.session_title;
+        //             await this.loadSessions();
+        //         }
+
+        //     } catch (err) {
+        //         this.isLoading = false;
+        //         this.statusMode = 'online';
+        //         this.statusText = 'Ready';
+        //         this.messages.push({
+        //             id: Date.now(), role: 'assistant',
+        //             content: '⚠️ ' + (err.message || 'Network error. Please check your connection.'),
+        //             time: this.formatTime(new Date().toISOString()),
+        //         });
+        //         this.$nextTick(() => this.scrollToBottom());
+        //     }
+        // },
+
         async sendMessage() {
             const rawText = this.inputText.trim();
-            let promptText = rawText;
             const originalFileCount = this.stagedFiles.length;
 
             if ((!rawText && originalFileCount === 0) || this.isLoading) return;
@@ -229,124 +372,152 @@ window.chatApp = function () {
                 try {
                     await this._createSession();
                 } catch (e) {
-                    this.messages.push({
-                        id: Date.now(), role: 'assistant',
-                        content: '⚠️ Could not start a chat session. Please try again.',
-                        time: this.formatTime(new Date().toISOString()),
-                    });
+                    this.messages.push({ id: Date.now(), role: 'assistant', content: '⚠️ Session error.', time: this.formatTime(new Date().toISOString()) });
                     return;
                 }
             }
 
-            // Optimistic UI for chat bubble
-            let displayContent = rawText;
+            // Display message in UI
+            let displayMsg = rawText;
             if (originalFileCount > 0) {
-                const names = this.stagedFiles.map(f => f.name).join(', ');
-                displayContent += rawText ? `\n\n*(Attached: ${names})*` : `*(Attached: ${names})*`;
+                displayMsg += `\n*(Uploading ${originalFileCount} file/s...)*`;
             }
+
+            const currentAttachments = this.stagedFiles.map(f => ({
+                name: f.name,
+                format: this.getFileFormat(f.name)
+            }));
 
             this.messages.push({
-                id: Date.now(), role: 'user',
-                content: displayContent, time: this.formatTime(new Date().toISOString()),
+                id: Date.now(), 
+                role: 'user',
+                content: rawText,
+                attachments: currentAttachments, // Dito natin isasama yung listahan
+                time: this.formatTime(new Date().toISOString()),
             });
-            this.inputText = '';
-            this.autoResize();
-            this.$nextTick(() => this.scrollToBottom());
 
+            // Prepare Multipart Form Data (Dito isasama ang PDF)
+            const formData = new FormData();
+            formData.append('message', rawText);
+            formData.append('session_token', this.sessionToken);
+            this.stagedFiles.forEach(f => formData.append('files[]', f));
+
+            this.inputText = '';
+            this.stagedFiles = []; // Clear agad pagkatapos i-append
             this.isLoading = true;
             this.statusMode = 'loading';
-            
-            // Read files into memory before sending
-            if (originalFileCount > 0) {
-                this.statusText = 'Reading files…';
-                try {
-                    let fileTexts = await Promise.all(this.stagedFiles.map((file) => {
-                        return new Promise((resolve) => {
-                            const reader = new FileReader();
-                            reader.onload = (e) => resolve(`\n\n--- [Attached File: ${file.name}] ---\n${e.target.result}\n---`);
-                            reader.onerror = () => resolve(`\n\n--- [Attached File: ${file.name}] ---\n(Could not read file contents)\n---`);
-                            reader.readAsText(file);
-                        });
-                    }));
-                    const combined = fileTexts.join('');
-                    if (!promptText) promptText = "Please analyze the attached files." + combined;
-                    else promptText += combined;
-                } catch (err) {
-                    console.error("File Read Error:", err);
-                }
-                this.stagedFiles = []; // clear staging area
-            }
-
-            this.statusText = 'AI is thinking…';
+            this.statusText = 'AI is reading files...';
+            this.$nextTick(() => this.scrollToBottom());
 
             try {
                 const r = await fetch('/api/chat/send', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': CSRF,
-                    },
-                    body: JSON.stringify({ message: promptText, session_token: this.sessionToken }),
+                    headers: { 
+                        'X-CSRF-TOKEN': CSRF 
+                    }, 
+                    body: formData,
                 });
 
                 if (!r.ok) {
-                    const err = await r.json().catch(() => ({}));
-                    throw new Error(err.message || `Server error ${r.status}`);
+                    const errData = await r.json();
+                    throw new Error(errData.message || `Server error ${r.status}`);
                 }
 
                 const d = await r.json();
-
-                // Stop typing indicator FIRST, then stream in the response
                 this.isLoading = false;
                 this.statusMode = 'online';
                 this.statusText = 'Ready';
 
-                const fullContent = d.message.content;
-                const msgId = d.message.id ?? Date.now();
+                if (d.success) {
+                    const msgId = d.message.id ?? Date.now();
+                    this.messages.push({
+                        id: msgId, role: 'assistant',
+                        content: '', time: this.formatTime(d.message.created_at),
+                    });
 
-                // Add empty placeholder, then typewrite into it
-                this.messages.push({
-                    id: msgId, role: 'assistant',
-                    content: '', time: this.formatTime(d.message.created_at),
-                });
-                this.$nextTick(() => this.scrollToBottom());
+                    this.speakWebSpeech(d.message.content);
+                    await this.typewriteMessage(msgId, d.message.content);
 
-                // Auto-speak using Web Speech immediately (CONCURRENT with typing effect)
-                this.speakWebSpeech(fullContent);
-
-                await this.typewriteMessage(msgId, fullContent);
-
-                if (d.session_title && d.session_title !== 'New Chat') {
-                    this.sessionTitle = d.session_title;
-                    await this.loadSessions();
+                    if (d.action === 'route_to_support') {
+                        window.dispatchEvent(new CustomEvent('open-support'));
+                    }
                 }
-
             } catch (err) {
                 this.isLoading = false;
                 this.statusMode = 'online';
-                this.statusText = 'Ready';
-                this.messages.push({
-                    id: Date.now(), role: 'assistant',
-                    content: '⚠️ ' + (err.message || 'Network error. Please check your connection.'),
-                    time: this.formatTime(new Date().toISOString()),
-                });
-                this.$nextTick(() => this.scrollToBottom());
+                this.messages.push({ id: Date.now(), role: 'assistant', content: '⚠️ Error: ' + err.message, time: this.formatTime(new Date().toISOString()) });
             }
         },
 
-        // Typewriter streaming effect
+        // Typewriter streaming effect — uses direct DOM mutation + throttled scroll
         async typewriteMessage(id, fullText) {
             const words = fullText.split(' ');
             const msgIdx = this.messages.findLastIndex(m => m.id === id);
-            if (msgIdx === -1) { this.messages.find(m => m.id === id) && (this.messages.find(m => m.id === id).content = fullText); return; }
+            if (msgIdx === -1) {
+                const m = this.messages.find(m => m.id === id);
+                if (m) { m.content = fullText; m.renderedHtml = this.renderContent(fullText); }
+                return;
+            }
+
+            // Find the actual DOM element for direct mutation
+            const msgContainer = this.$refs.msgContainer;
+            const msgEls = msgContainer ? msgContainer.querySelectorAll('.message.assistant') : [];
+            const targetEl = msgEls[msgEls.length - 1]; // last assistant message
+            const bubbleEl = targetEl ? targetEl.querySelector('.msg-bubble.assistant') : null;
 
             let built = '';
+            let lastScroll = 0;
+
             for (const word of words) {
                 built += (built ? ' ' : '') + word;
-                this.messages[msgIdx] = { ...this.messages[msgIdx], content: built };
-                this.$nextTick(() => this.scrollToBottom());
-                await new Promise(r => setTimeout(r, 16)); // ~60fps
+                // Update Alpine state (for reactivity)
+                this.messages[msgIdx].content = built;
+
+                // Direct DOM mutation to bypass Alpine re-render cycle
+                if (bubbleEl) {
+                    bubbleEl.innerHTML = this.renderContent(built);
+                }
+
+                // Throttle scroll to ~100ms instead of every 16ms
+                const now = Date.now();
+                if (now - lastScroll > 100) {
+                    this.scrollToBottom();
+                    lastScroll = now;
+                }
+
+                await new Promise(r => setTimeout(r, 16));
             }
+
+            // Final state: cache rendered HTML and scroll
+            this.messages[msgIdx].renderedHtml = this.renderContent(fullText);
+            this.scrollToBottom();
+        },
+
+        getFileFormat(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            const formats = {
+                // Documents
+                pdf: '📕 PDF',
+                doc: '📘 DOC',
+                docx: '📘 DOCX',
+                txt: '📄 TXT',
+                md: '📝 MD',
+                // Spreadsheets
+                xls: '📗 XLS',
+                xlsx: '📗 XLSX',
+                csv: '📊 CSV',
+                // Presentations
+                ppt: '📙 PPT',
+                pptx: '📙 PPTX',
+                // Images
+                jpg: '🖼️ JPG',
+                jpeg: '🖼️ JPEG',
+                png: '🖼️ PNG',
+                gif: '🖼️ GIF',
+                // Code/Data
+                json: '📦 JSON'
+            };
+            return formats[ext] || '📁 FILE';
         },
 
         handleEnter(e) {
@@ -441,8 +612,30 @@ window.chatApp = function () {
             this.currentAudio.play().catch(() => {});
         },
 
-        // ── Utilities ─────────────────────────────────────────────────
-        scrollToBottom() {
+        // ── Render cache ──────────────────────────────────────────────
+        _renderCache: new Map(),
+        _renderCacheMax: 500,
+
+        renderContent(content) {
+            if (!content) return '';
+            // Check cache first
+            if (this._renderCache.has(content)) {
+                return this._renderCache.get(content);
+            }
+            
+            const result = this._renderContentImpl(content);
+            
+            // Cache management
+            if (this._renderCache.size >= this._renderCacheMax) {
+                // Remove oldest entry (first key)
+                const firstKey = this._renderCache.keys().next().value;
+                this._renderCache.delete(firstKey);
+            }
+            this._renderCache.set(content, result);
+            return result;
+        },
+
+        _renderContentImpl(content) {
             const c = this.$refs.msgContainer;
             if (c) c.scrollTop = c.scrollHeight;
         },

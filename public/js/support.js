@@ -41,9 +41,45 @@ window.supportApp = function () {
             if (this.userRole === 'admin') {
                 await this.loadThreads();
                 // Admin background polling to detect incoming messages on any thread
-                setInterval(() => this.loadThreads(), 3000);
+                this._threadsPollInterval = setInterval(() => this.loadThreads(), 3000);
             } else {
                 await this.openMyThread();
+            }
+
+            // Pause polling when tab is hidden
+            this._setupVisibilityHandler();
+        },
+
+        _setupVisibilityHandler() {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    this._pauseSupportPolls();
+                } else {
+                    this._resumeSupportPolls();
+                }
+            });
+        },
+
+        _pauseSupportPolls() {
+            this._visibilityPaused = true;
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
+            }
+            if (this._threadsPollInterval) {
+                clearInterval(this._threadsPollInterval);
+                this._threadsPollInterval = null;
+            }
+        },
+
+        _resumeSupportPolls() {
+            if (!this._visibilityPaused) return;
+            this._visibilityPaused = false;
+            if (this.threadId) {
+                this._startPoll();
+            }
+            if (this.userRole === 'admin') {
+                this._threadsPollInterval = setInterval(() => this.loadThreads(), 3000);
             }
         },
 
@@ -140,6 +176,7 @@ window.supportApp = function () {
 
         _clearPoll() {
             if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+            if (this._threadsPollInterval) { clearInterval(this._threadsPollInterval); this._threadsPollInterval = null; }
         },
 
         async fetchMessages(incremental = true) {

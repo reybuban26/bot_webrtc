@@ -309,7 +309,7 @@ body {
   background: var(--bg-panel); border: 1px solid var(--ai-border);
   color: var(--txt); border-bottom-left-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,.06);
-  white-space: pre-wrap;
+  white-space: normal;
 }
 .msg-meta { font-size: .63rem; color: var(--txt-3); display: flex; align-items: center; gap: 5px; padding: 0 2px; }
 .msg-speak-btn {
