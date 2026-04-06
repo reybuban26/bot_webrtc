@@ -25,7 +25,7 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=5"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=6"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
@@ -375,8 +375,26 @@
   }
   .sp-send:hover { opacity: .88; transform: scale(1.06); }
   .sp-send:disabled { opacity: .3; cursor: not-allowed; transform: none; box-shadow: none; }
-</style>
 
+  .session-title-shimmer {
+    height: 13px;
+    width: 75%;
+    border-radius: 6px;
+    background: linear-gradient(
+        90deg,
+        var(--bg-surface) 25%,
+        var(--border-hi, rgba(99,102,241,0.25)) 50%,
+        var(--bg-surface) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer-slide 1.5s infinite ease-in-out;
+  }
+
+  @keyframes shimmer-slide {
+      0%   { background-position: 200% center; }
+      100% { background-position: -200% center; }
+  }
+</style>
 
 </head>
 <body>
@@ -437,8 +455,14 @@
     <div class="sessions-list">
       <div class="sb-group-label" x-show="sessions.length > 0">Recent Chats</div>
       <template x-for="s in sessions" :key="s.token">
-        <div class="session-item" :class="{ active: s.token === sessionToken }" @click="switchSession(s.token)">
-          <div class="session-title" x-text="s.title"></div>
+      <div class="session-item" :class="{ active: s.token === sessionToken }" @click="switchSession(s.token)">
+        <div class="session-title" 
+             x-show="generatingTitleFor !== s.token"
+             x-text="s.title">
+        </div>
+        <div class="session-title-shimmer" 
+             x-show="generatingTitleFor === s.token">
+        </div>
           <button class="session-delete" @click="deleteSession(s.token, $event)" title="Delete">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
           </button>
@@ -1016,7 +1040,7 @@
   <span id="toast-msg"></span>
 </div>
 
-<script src="{{ asset('js/chatbot.js') }}?v=23"></script>
+<script src="{{ asset('js/chatbot.js') }}?v=28"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/support.js') }}?v=11"></script>
 <script>

@@ -6,6 +6,7 @@ use App\Models\ChatSession;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class QwenAiService
 {
@@ -163,68 +164,112 @@ class QwenAiService
      * Generate a short chat title from the current conversation context.
      * It updates dynamically if the context evolves.
      */
+    // public function generateTitle(ChatSession $session): string
+    // {
+    //     $history = $session->getConversationHistory(4);
+    //     $historyText = collect($history)->map(fn($m) => strtoupper($m['role']) . ': ' . $m['content'])->implode("\n");
+
+    //     if (empty($this->qwenApiKey)) {
+    //         $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
+    //         return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
+    //     }
+
+    //     $startTime = microtime(true);
+    //     try {
+    //         $payload = [
+    //             'model'       => self::CHAT_MODEL,
+    //             'messages'    => [
+    //                 [
+    //                     'role'    => 'system',
+    //                     'content' => "Generate a short, clear chat title based on the user's message. "
+    //                             . "Summarize the intent in 5–8 words, avoid generic titles like 'New Chat', and focus on the main goal of the query. "
+    //                             . "Output ONLY the raw title. No quotes, no punctuation at the end.\n\n"
+    //                             . "Example: User: 'What is the title inside this PDF?' → Extracting PDF Title",
+    //                 ],
+    //                 ['role' => 'user', 'content' => "Conversation Context:\n" . $historyText],
+    //             ],
+    //             'max_tokens'  => 20,
+    //             'temperature' => 0.1, // Binabaan natin to 0.1 para strict at sundin ang format
+    //             'stream'      => false,
+    //         ];
+            
+    //         $response = Http::withHeaders([
+    //             'Authorization' => 'Bearer ' . $this->qwenApiKey,
+    //             'Content-Type'  => 'application/json',
+    //         ])->timeout(50)->post(self::CHAT_ENDPOINT, $payload); // Tinaasan natin timeout to 15s
+
+    //         $durationMs = round((microtime(true) - $startTime) * 1000);
+
+    //         \App\Models\ApiLog::create([
+    //             'service' => 'qwen_title',
+    //             'endpoint' => self::CHAT_ENDPOINT,
+    //             'method' => 'POST',
+    //             'status_code' => $response->status(),
+    //             'request_payload' => $payload,
+    //             'response_payload' => $response->json(),
+    //             'error_message' => $response->successful() ? null : $response->body(),
+    //             'duration_ms' => $durationMs,
+    //             'ip_address' => request()->ip(),
+    //         ]);
+
+    //         if ($response->successful()) {
+    //             $title = trim(trim($response->json('choices.0.message.content') ?? ''), '"\'');
+    //             if ($title && mb_strlen($title) <= 80) {
+    //                 return $title;
+    //             }
+    //         }
+    //     } catch (\Throwable $e) {
+    //         Log::warning('[Chat] Title generation failed', ['error' => $e->getMessage()]);
+    //     }
+    //     $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
+    //     return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
+    // }
+
     public function generateTitle(ChatSession $session): string
     {
-        $history = $session->getConversationHistory(6);
-        $historyText = collect($history)->map(fn($m) => strtoupper($m['role']) . ': ' . $m['content'])->implode("\n");
+        $history = $session->getConversationHistory(4); // Bawasan sa 4 lang
+        $historyText = collect($history)
+            ->map(fn($m) => strtoupper($m['role']) . ': ' . Str::limit($m['content'], 200))
+            ->implode("\n");
 
-        if (empty($this->qwenApiKey)) {
-            $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
+        $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
+
+        if (empty($this->groqApiKey)) {
             return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
         }
 
-        $startTime = microtime(true);
         try {
-            $payload = [
-                'model'       => self::CHAT_MODEL,
-                'messages'    => [
-                    [
-                        'role'    => 'system',
-                        'content' => "You are an expert intent analyzer. Read the conversation and describe the user's core intent in exactly 3 to 6 words.\n\n"
-                            . "CRITICAL RULES:\n"
-                            . "1. NEVER repeat or quote the user's exact words.\n"
-                            . "2. Start with an action word (e.g., 'Asking about...', 'Troubleshooting a...', 'Inquiring regarding...').\n"
-                            . "3. Output ONLY the raw title. No quotes, no prefixes, no trailing punctuation.\n\n"
-                            . "Example Input: 'who are you'\n"
-                            . "Example Output: Asking about AI identity",
-                    ],
-                    ['role' => 'user', 'content' => "Conversation Context:\n" . $historyText],
-                ],
-                'max_tokens'  => 20,
-                'temperature' => 0.1, // Binabaan natin to 0.1 para strict at sundin ang format
-                'stream'      => false,
-            ];
-            
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->qwenApiKey,
-                'Content-Type'  => 'application/json',
-            ])->timeout(15)->post(self::CHAT_ENDPOINT, $payload); // Tinaasan natin timeout to 15s
+            'Authorization' => 'Bearer ' . $this->groqApiKey,
+            'Content-Type'  => 'application/json',
+        ])->timeout(15)->post(self::GROQ_CHAT_ENDPOINT, [ // ← Groq na, hindi na DashScope
+            'model'       => 'llama-3.3-70b-versatile',
+            'messages'    => [
+                [
+                    'role'    => 'system',
+                    'content' => "Generate a short, clear chat title based on the user's message. "
+                        . "Summarize the intent in 5–8 words, avoid generic titles like 'New Chat'. "
+                        . "Output ONLY the raw title. No quotes, no punctuation at the end.\n\n"
+                        . "Example: User: 'What is the title inside this PDF?' → Extracting PDF Title",
+                ],
+                ['role' => 'user', 'content' => "Conversation:\n" . $historyText],
+            ],
+            'max_tokens'  => 20,
+            'temperature' => 0.1,
+            'stream'      => false,
+        ]);
 
-            $durationMs = round((microtime(true) - $startTime) * 1000);
-
-            \App\Models\ApiLog::create([
-                'service' => 'qwen_title',
-                'endpoint' => self::CHAT_ENDPOINT,
-                'method' => 'POST',
-                'status_code' => $response->status(),
-                'request_payload' => $payload,
-                'response_payload' => $response->json(),
-                'error_message' => $response->successful() ? null : $response->body(),
-                'duration_ms' => $durationMs,
-                'ip_address' => request()->ip(),
-            ]);
-
-            if ($response->successful()) {
-                $title = trim(trim($response->json('choices.0.message.content') ?? ''), '"\'');
-                if ($title && mb_strlen($title) <= 80) {
-                    return $title;
-                }
+        if ($response->successful()) {
+            $title = trim(trim($response->json('choices.0.message.content') ?? ''), '"\'');
+            if ($title && mb_strlen($title) <= 80) {
+                return $title;
             }
-        } catch (\Throwable $e) {
-            Log::warning('[Chat] Title generation failed', ['error' => $e->getMessage()]);
         }
-        $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
-        return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
+    } catch (\Throwable $e) {
+        Log::warning('[Title] Groq title generation failed', ['error' => $e->getMessage()]);
+    }
+
+    return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
     }
 
     private function fallbackTitle(string $message): string

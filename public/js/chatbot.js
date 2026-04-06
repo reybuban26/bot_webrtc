@@ -27,6 +27,8 @@ window.chatApp = function () {
 
         stagedFiles: [],
 
+        generatingTitleFor: '',
+
         // Profile
         profileOpen: false,
         profileSaving: false,
@@ -313,6 +315,19 @@ window.chatApp = function () {
                     if (d.action === 'route_to_support') {
                         window.dispatchEvent(new CustomEvent('open-support'));
                     }
+
+                    let pollCount = 0;
+                    this.generatingTitleFor = this.sessionToken; // ← DAGDAG
+                    const pollTitle = setInterval(async () => {
+                        pollCount++;
+                        await this.loadSessions();
+                        const current = this.sessions.find(s => s.token === this.sessionToken);
+                        if ((current && current.title !== 'New Chat') || pollCount >= 6) {
+                            clearInterval(pollTitle);
+                            if (current) this.sessionTitle = current.title;
+                            this.generatingTitleFor = ''; // ← DAGDAG
+                        }
+                    }, 5000);
                 }
             } catch (err) {
                 this.isLoading = false;
@@ -484,32 +499,11 @@ window.chatApp = function () {
             this.currentAudio.play().catch(() => {});
         },
 
-        // ── Render cache ──────────────────────────────────────────────
-        _renderCache: new Map(),
-        _renderCacheMax: 500,
-
-        renderContent(content) {
-            if (!content) return '';
-            // Check cache first
-            if (this._renderCache.has(content)) {
-                return this._renderCache.get(content);
-            }
-            
-            const result = this._renderContentImpl(content);
-            
-            // Cache management
-            if (this._renderCache.size >= this._renderCacheMax) {
-                // Remove oldest entry (first key)
-                const firstKey = this._renderCache.keys().next().value;
-                this._renderCache.delete(firstKey);
-            }
-            this._renderCache.set(content, result);
-            return result;
-        },
-
-        _renderContentImpl(content) {
-            const c = this.$refs.msgContainer;
-            if (c) c.scrollTop = c.scrollHeight;
+        scrollToBottom() {
+            this.$nextTick(() => {
+                const c = this.$refs.msgContainer;
+                if (c) c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+            });
         },
 
         formatTime(iso) {

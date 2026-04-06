@@ -67,100 +67,6 @@ class ChatController extends Controller
         ])->cookie('chat_session', $session->session_token, 60 * 24 * 7);
     }
 
-    /**
-     * Send a message and get AI response — user must own the session.
-     */
-    // public function sendMessage(Request $request): JsonResponse
-    // {
-    //     $request->headers->set('Accept', 'application/json');
-
-    //     $validated = $request->validate([
-    //         'message'       => 'required|string|max:4000',
-    //         'session_token' => 'required|string',
-    //         'files.*'       => 'nullable|file|mimes:pdf,txt,md,csv|max:10240',
-    //     ]);
-
-    //     // The global scope already filters to Auth::id(); firstOrFail() is a final check.
-    //     // Policy provides an explicit 403 if the token somehow belongs to another user.
-    //     $session = ChatSession::where('session_token', $validated['session_token'])
-    //         ->firstOrFail();
-
-    //     $this->authorize('interact', $session);
-
-    //     $fileContext = '';
-    //     if ($request->hasFile('files')) {
-    //         $parser = new Parser();
-    //         foreach ($request->file('files') as $file) {
-    //             if ($file->getClientOriginalExtension() === 'pdf') {
-    //                 $pdf = $parser->parseFile($file->getPathname());
-    //                 $fileContext .= "\n\n--- [File: " . $file->getClientOriginalName() . "] ---\n" . $pdf->getText();
-    //             } else {
-    //                 $fileContext .= "\n\n--- [File: " . $file->getClientOriginalName() . "] ---\n" . file_get_contents($file->getPathname());
-    //             }
-    //         }
-    //     }
-
-    //     $userMessage = $validated['message'] ?? '';
-
-    //     // 2. Sentiment Check
-    //     $sentiment = $this->qwen->analyzeSentiment($userMessage);
-    //     if (in_array($sentiment, ['ANGRY', 'FRUSTRATED'])) {
-    //         return response()->json([
-    //             'success' => true,
-    //             'message' => [
-    //                 'id' => time(),
-    //                 'role' => 'assistant',
-    //                 'content' => "⚠️ **System Notice:** Napansin ko pong kayo ay frustrated. Inilipat ko na po ang chat na ito sa aming Live Support team para mas matulungan kayo.",
-    //                 'created_at' => now()->toISOString(),
-    //             ],
-    //             'action' => 'route_to_support'
-    //         ]);
-    //     }
-
-    //     // Save user message
-    //     ChatMessage::create([
-    //         'chat_session_id' => $session->id,
-    //         'role'            => 'user',
-    //         'content'         => $userMessage . ($fileContext ? "\n*(Attached files)*" : ""),
-    //     ]);
-
-    //     // 4. Get AI Response with Context
-    //     $result = $this->qwen->chat($session, $userMessage . $fileContext);
-
-    //     $messageCount = $session->messages()->count();
-
-    //     // Generate or dynamically update title based on evolving context
-    //     if ($session->title === 'New Chat' || in_array($messageCount, [3, 7])) {
-    //         $title = $this->qwen->generateTitle($session);
-    //         if ($title && $title !== 'New Chat') {
-    //             $session->update(['title' => $title]);
-    //         }
-    //     }
-
-    //     // Call Qwen AI
-    //     $result = $this->qwen->chat($session, $validated['message']);
-
-    //     // Save assistant message
-    //     $assistantMessage = ChatMessage::create([
-    //         'chat_session_id' => $session->id,
-    //         'role'            => 'assistant',
-    //         'content'         => $result['content'],
-    //         'tokens_used'     => $result['tokens'] ?? 0,
-    //     ]);
-
-    //     return response()->json([
-    //         'success' => $result['success'],
-    //         'message' => [
-    //             'id'         => $assistantMessage->id,
-    //             'role'       => 'assistant',
-    //             'content'    => $result['content'],
-    //             'created_at' => $assistantMessage->created_at->toISOString(),
-    //         ],
-    //         'session_title' => $session->fresh()->title,
-    //         'action' => 'none'
-    //     ]);
-    // }
-
     public function sendMessage(Request $request): JsonResponse
     {
         $request->headers->set('Accept', 'application/json');
@@ -215,11 +121,30 @@ class ChatController extends Controller
         // Sentiment Check
         $sentiment = $this->qwen->analyzeSentiment($userRawMessage ?: 'File Upload');
         if (in_array($sentiment, ['ANGRY', 'FRUSTRATED'])) {
+            // Save user message para may history ang title generator
+            ChatMessage::create([
+                'chat_session_id' => $session->id,
+                'role'            => 'user',
+                'content'         => $userRawMessage ?: '*(Sent an attachment)*',
+                'metadata'        => !empty($attachmentsData) ? ['attachments' => $attachmentsData] : null,
+            ]);
+
+            $systemMessage = ChatMessage::create([
+                'chat_session_id' => $session->id,
+                'role'            => 'assistant',
+                'content'         => "⚠️ **System Notice:** I noticed you're frustrated. I've escalated this chat to our Live Support team.",
+                'tokens_used'     => 0,
+            ]);
+
+            // Dispatch title job — same as normal flow
+            \App\Jobs\GenerateChatTitle::dispatch($session);
+
             return response()->json([
                 'success' => true,
                 'message' => [
                     'id' => time(), 'role' => 'assistant',
-                    'content' => "⚠️ **System Notice:** I noticed you're frustrated. I've escalated this chat to our Live Support team.",                    'created_at' => now()->toISOString(),
+                    'content' => "⚠️ **System Notice:** I noticed you're frustrated. I've escalated this chat to our Live Support team.",
+                    'created_at' => now()->toISOString(),
                 ],
                 'action' => 'route_to_support',
             ]);
@@ -241,10 +166,7 @@ class ChatController extends Controller
         // Update Title
         $messageCount = $session->messages()->count();
         if ($session->title === 'New Chat' || in_array($messageCount, [3, 7])) {
-            $title = $this->qwen->generateTitle($session);
-            if ($title) {
-                $session->update(['title' => $title]);
-            }
+            \App\Jobs\GenerateChatTitle::dispatch($session);
         }
 
         // Save AI Response
