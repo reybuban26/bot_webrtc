@@ -128,55 +128,68 @@ class SupportController extends Controller
      * Send a plain text message to a thread.
      */
     public function send(Request $request, int $threadId): JsonResponse
-{
-    $thread = SupportThread::findOrFail($threadId);
-    $this->authorizeThread($request->user(), $thread);
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
 
-    $request->validate([
-        'body' => 'nullable|string|max:2000',
-        'file' => 'nullable|file|mimes:pdf,txt,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,webp|max:10240',
-    ]);
+        $request->validate([
+            'body' => 'nullable|string|max:2000',
+            'file' => 'nullable|file|mimes:pdf,txt,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,webp|max:10240',
+        ]);
 
-    if (!$request->filled('body') && !$request->hasFile('file')) {
-        return response()->json(['error' => 'Message or file is required.'], 422);
+        if (!$request->filled('body') && !$request->hasFile('file')) {
+            return response()->json(['error' => 'Message or file is required.'], 422);
+        }
+
+        $metadata = null;
+        $type     = 'text';
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('support-attachments', 'public');
+
+            $type     = 'file';
+            $metadata = [
+                'attachment_path' => $path,
+                'attachment_url'  => asset('storage/' . $path),
+                'attachment_name' => $file->getClientOriginalName(),
+                'attachment_mime' => $file->getMimeType(),
+                'attachment_size' => $file->getSize(),
+            ];
+        }
+
+        $message = SupportMessage::create([
+            'thread_id' => $thread->id,
+            'sender_id' => $request->user()->id,
+            'body'      => $request->input('body', ''),
+            'type'      => $type,
+            'metadata'  => $metadata,
+        ]);
+
+        $thread->touch();
+
+        $recipientId = $request->user()->role === 'admin'
+            ? $thread->user_id
+            : User::where('role', 'admin')->first()?->id;
+
+        if ($recipientId) {
+            PushController::sendToUser(
+                userId: $recipientId,
+                title:  $request->user()->name,
+                body:   $message->body ?: '📎 Sent an attachment',
+                url:    '/chat'
+            );
+        }
+
+        return response()->json([
+            'id'         => $message->id,
+            'body'       => $message->body,
+            'sender_id'  => $message->sender_id,
+            'type'       => $message->type,
+            'metadata'   => $message->metadata,
+            'created_at' => $message->created_at->toISOString(),
+        ], 201);
     }
-
-    $metadata = null;
-    $type     = 'text';
-
-    if ($request->hasFile('file')) {
-        $file = $request->file('file');
-        $path = $file->store('support-attachments', 'public');
-
-        $type     = 'file';
-        $metadata = [
-            'attachment_path' => $path,
-            'attachment_url'  => asset('storage/' . $path),
-            'attachment_name' => $file->getClientOriginalName(),
-            'attachment_mime' => $file->getMimeType(),
-            'attachment_size' => $file->getSize(),
-        ];
-    }
-
-    $message = SupportMessage::create([
-        'thread_id' => $thread->id,
-        'sender_id' => $request->user()->id,
-        'body'      => $request->input('body', ''),
-        'type'      => $type,
-        'metadata'  => $metadata,
-    ]);
-
-    $thread->touch();
-
-    return response()->json([
-        'id'         => $message->id,
-        'body'       => $message->body,
-        'sender_id'  => $message->sender_id,
-        'type'       => $message->type,
-        'metadata'   => $message->metadata,
-        'created_at' => $message->created_at->toISOString(),
-    ], 201);
-}
 
     /**
      * Upload call recording, transcribe with Qwen audio, generate meeting notes,
@@ -276,13 +289,17 @@ class SupportController extends Controller
             $query->whereHas('sender', fn($q) => $q->where('role', 'admin'));
         }
 
-        $query->update(['is_read' => true]);
+        $unreadCount = $query->count(); // ← DAGDAG: i-count muna
 
-        broadcast(new MessageSeen(
-            threadId: $thread->id,
-            seenByUserId: $request->user()->id,
-            seenByName: $request->user()->name
-        ));
+        if ($unreadCount > 0) { // ← DAGDAG: broadcast ONLY if may unread
+            $query->update(['is_read' => true]);
+
+            broadcast(new MessageSeen(
+                threadId: $thread->id,
+                seenByUserId: $request->user()->id,
+                seenByName: $request->user()->name
+            ));
+        }
 
         return response()->json(['success' => true]);
     }

@@ -243,6 +243,7 @@
     color: #fff;
     border-bottom-right-radius: 5px;
     box-shadow: 0 4px 18px rgba(91,94,244,.22);
+    position: relative;
   }
   .sp-bubble.system {
     background: var(--bg-surface);
@@ -470,11 +471,12 @@
 
   .sp-msg-status {
     font-size: .65rem;
-    margin-left: 4px;
+    margin-left: 6px;
     display: inline-flex;
     align-items: center;
-    gap: 1px;
-    vertical-align: middle;
+    position: absolute;  /* ← DAGDAG */
+    left: -26px;        /* ← labas ng bubble */
+    bottom: 2px;
   }
   .sp-check { color: rgba(255,255,255,0.5); }
   .sp-check.delivered { color: rgba(255,255,255,0.7); }
@@ -1167,17 +1169,15 @@
           </template>
         </template>
       </div>
-      <!-- Input bar -->
-      <div class="sp-input-row" style="flex-direction: column; padding: 0; gap: 0;">
-        <!-- File preview strip -->
-        <div class="sp-file-preview" x-show="stagedFile" style="display:none;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            <span class="sp-file-preview-name" x-text="stagedFile?.name"></span>
-            <span style="opacity:.5; font-size:.7rem;" x-text="stagedFile ? formatBytes(stagedFile.size) : ''"></span>
-            <button class="sp-file-preview-remove" @click="removeSupportFile()">×</button>
+
+      <div x-show="seenBy" x-transition.opacity
+             style="text-align: center; font-size: .65rem;
+                    color: var(--txt-3); opacity: 0.5;
+                    padding: 0 4px 8px;">
+            ✓✓ <span x-text="seenBy"></span>
         </div>
 
-        <div x-show="typingText" 
+      <div x-show="typingText" 
             x-transition.opacity
             style="padding: 4px 14px 6px; font-size: .72rem; color: var(--txt-3); display: flex; align-items: center; gap: 6px;">
             <div style="display: flex; gap: 3px; align-items: center;">
@@ -1188,10 +1188,14 @@
             <span x-text="typingText"></span>
         </div>
 
-        <!-- Seen receipt -->
-        <div x-show="seenBy" x-transition.opacity
-            style="padding: 0 14px 4px; font-size: .68rem; color: var(--txt-3); text-align: right;">
-            ✓✓ Seen by <span x-text="seenBy"></span>
+      <!-- Input bar -->
+      <div class="sp-input-row" style="flex-direction: column; padding: 0; gap: 0;">
+        <!-- File preview strip -->
+        <div class="sp-file-preview" x-show="stagedFile" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            <span class="sp-file-preview-name" x-text="stagedFile?.name"></span>
+            <span style="opacity:.5; font-size:.7rem;" x-text="stagedFile ? formatBytes(stagedFile.size) : ''"></span>
+            <button class="sp-file-preview-remove" @click="removeSupportFile()">×</button>
         </div>
 
         <!-- Input row -->
@@ -1227,7 +1231,7 @@
 
 <script src="{{ asset('js/chatbot.js') }}?v=28"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
-<script src="{{ asset('js/support.js') }}?v=15"></script>
+<script src="{{ asset('js/support.js') }}?v=18"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

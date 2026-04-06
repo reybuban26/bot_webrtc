@@ -7,7 +7,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SupportController;
 use App\Http\Controllers\WebRtcController;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Foundation\Auth\EmailVerificationRequest;
+use App\Http\Controllers\PushController;
 use Illuminate\Http\Request;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -114,3 +114,9 @@ Route::prefix('api/profile')->name('profile.')->middleware(['auth', 'verified'])
 });
 
 Route::get('/api/voice/status', [CallController::class, 'voiceStatus'])->name('voice.status');
+
+Route::prefix('api/push')->middleware(['auth', 'verified'])->group(function () {
+    Route::post('/subscribe',   [PushController::class, 'subscribe']);
+    Route::post('/unsubscribe', [PushController::class, 'unsubscribe']);
+    Route::get('/vapid-key',    fn() => response()->json(['key' => config('services.vapid.public_key')]));
+});

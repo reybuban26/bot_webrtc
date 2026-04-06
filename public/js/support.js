@@ -21,6 +21,8 @@ window.supportApp = function () {
 
         stagedFile: null,
 
+        _typingClearTimer: null,
+
         typingUsers: {},      // { userId: { name, timer } }
         seenBy: '',           // pangalan ng nakakita
         _reverbChannel: null,
@@ -47,7 +49,7 @@ window.supportApp = function () {
                     setTimeout(() => this._scrollToBottom(), 50);
 
                     // ✅ DAGDAG — markAsSeen agad kapag nabuksan ang panel
-                    if (this.threadId) {
+                    if (this.threadId && this.messages.length > 0) {
                         this.markAsSeen(this.threadId);
                     }
                 }
@@ -131,7 +133,6 @@ window.supportApp = function () {
             this.activeUserName = userName;
             if (threadId) {
                 this.unreadPerThread[threadId] = 0;
-                await this.markAsSeen(threadId);
             }
             await this.openThread(userId);
             this.open = true;
@@ -155,10 +156,6 @@ window.supportApp = function () {
         // — the panel must only appear on explicit user action.
         async openMyThread() {
             await this.openThread(null);
-            // Mark as seen when user opens their own thread if messages exist
-            if (this.threadId && this.open) {
-                await this.markAsSeen(this.threadId);
-            }
         },
 
         async openThread(userId) {
@@ -203,13 +200,23 @@ window.supportApp = function () {
             .listen('.user.typing', (e) => {
                 if (e.userId === this.userId) return;
 
-                // ← DAGDAG: Kung may typing event = online ang partner
                 this._setPartnerOnline();
 
                 if (e.isTyping) {
                     this.typingUsers[e.userId] = e.userName;
+
+                    // ✅ DAGDAG — auto-clear after 3 seconds kung walang bagong typing event
+                    if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
+                    this._typingClearTimer = setTimeout(() => {
+                        delete this.typingUsers[e.userId];
+                    }, 3000);
+
                 } else {
-                    delete this.typingUsers[e.userId];
+                    // ✅ Delayed clear kapag nag-stop ng typing
+                    if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
+                    this._typingClearTimer = setTimeout(() => {
+                        delete this.typingUsers[e.userId];
+                    }, 1500); // 1.5 seconds delay bago mawala
                 }
             })
             .listen('.message.seen', (e) => {
@@ -274,7 +281,7 @@ window.supportApp = function () {
                     this._scrollToBottom();
 
                     // ✅ PALITAN — markAsSeen AGAD kapag bukas ang panel, hindi lang count
-                    if (this.open) {
+                    if (this.open && d.messages.length > 0) {
                         await this.markAsSeen(this.threadId);
                     } else {
                         this.unreadCount += d.messages.length;
