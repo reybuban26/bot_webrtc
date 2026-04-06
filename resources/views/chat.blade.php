@@ -1016,9 +1016,9 @@
   <span id="toast-msg"></span>
 </div>
 
-<script src="{{ asset('js/chatbot.js') }}?v=22"></script>
+<script src="{{ asset('js/chatbot.js') }}?v=23"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
-<script src="{{ asset('js/support.js') }}?v=10"></script>
+<script src="{{ asset('js/support.js') }}?v=11"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {
