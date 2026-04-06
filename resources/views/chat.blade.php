@@ -394,6 +394,92 @@
       0%   { background-position: 200% center; }
       100% { background-position: -200% center; }
   }
+
+    .sp-attach-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--txt-3); padding: 6px;
+      border-radius: 8px; transition: color .15s, background .15s;
+      display: flex; align-items: center; flex-shrink: 0;
+  }
+  .sp-attach-btn:hover { color: var(--accent); background: var(--accent-dim); }
+
+  .sp-file-preview {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
+      font-size: .78rem; color: var(--txt);
+  }
+  .sp-file-preview-name {
+      flex: 1; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sp-file-preview-remove {
+      background: none; border: none; cursor: pointer;
+      color: var(--txt-3); font-size: 1rem; line-height: 1;
+      padding: 0 4px; transition: color .15s;
+  }
+  .sp-file-preview-remove:hover { color: #ef4444; }
+
+  /* File bubble */
+  .sp-file-bubble {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      border-radius: 14px;
+      max-width: 82%;
+      font-size: .82rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity .15s;
+  }
+  .sp-file-bubble:hover { opacity: .85; }
+  .sp-file-bubble.own {
+      background: var(--user-grad);
+      color: #fff;
+      border-bottom-right-radius: 5px;
+  }
+  .sp-file-bubble.other {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--txt);
+      border-bottom-left-radius: 5px;
+  }
+  .sp-file-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .sp-file-info { min-width: 0; }
+  .sp-file-info-name {
+      font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 180px;
+  }
+  .sp-file-info-size { font-size: .7rem; opacity: .7; margin-top: 2px; }
+
+  /* Image preview in chat */
+  .sp-img-bubble {
+      max-width: 220px; border-radius: 12px;
+      overflow: hidden; cursor: pointer;
+      border: 2px solid var(--border);
+      transition: opacity .15s;
+  }
+  .sp-img-bubble:hover { opacity: .9; }
+  .sp-img-bubble img { width: 100%; display: block; }
+
+  @keyframes dot-bounce {
+    0%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-4px); }
+  }
+
+  .sp-msg-status {
+    font-size: .65rem;
+    margin-left: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    vertical-align: middle;
+  }
+  .sp-check { color: rgba(255,255,255,0.5); }
+  .sp-check.delivered { color: rgba(255,255,255,0.7); }
+  .sp-check.seen { color: #60d4f7; }
+
 </style>
 
 </head>
@@ -1005,34 +1091,133 @@
             <!-- Regular text message -->
             <template x-if="msg.type === 'text'">
               <div :class="['sp-msg-group', isOwnMessage(msg) ? 'own' : 'other']">
-                <!-- Sender name for 'other' side -->
                 <template x-if="!isOwnMessage(msg)">
                   <div class="sp-sender-name" x-text="msg.sender"></div>
                 </template>
-                <div :class="['sp-bubble', isOwnMessage(msg) ? 'own' : 'other']" x-text="msg.body"></div>
+                <div :class="['sp-bubble', isOwnMessage(msg) ? 'own' : 'other']">
+                  <span x-text="msg.body"></span>
+                  <!-- ✅ Check marks para sa sariling messages -->
+                  <template x-if="isOwnMessage(msg)">
+                    <span class="sp-msg-status">
+                      <!-- Blue double check = seen -->
+                      <template x-if="messagesSeen">
+                        <span>
+                          <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                            <path d="M1 5l3 3L11 1" stroke="#60d4f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M5 5l3 3L15 1" stroke="#60d4f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </span>
+                      </template>
+                      <!-- Gray double check = partner online -->
+                      <template x-if="!messagesSeen && partnerOnline">
+                        <span>
+                          <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                            <path d="M1 5l3 3L11 1" stroke="rgba(255,255,255,0.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M5 5l3 3L15 1" stroke="rgba(255,255,255,0.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </span>
+                      </template>
+                      <!-- Single gray check = sent lang -->
+                      <template x-if="!messagesSeen && !partnerOnline">
+                        <span>
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        </span>
+                      </template>
+                    </span>
+                  </template>
+                </div>
                 <div class="sp-time" x-text="formatTime(msg.created_at)"></div>
               </div>
             </template>
-          </div>
+            <!-- File / Image attachment message -->
+          <template x-if="msg.type === 'file'">
+              <div :class="['sp-msg-group', isOwnMessage(msg) ? 'own' : 'other']">
+                  <template x-if="!isOwnMessage(msg)">
+                      <div class="sp-sender-name" x-text="msg.sender"></div>
+                  </template>
+
+                  <!-- Image preview -->
+                  <template x-if="msg.metadata && isImage(msg.metadata.attachment_mime)">
+                      <a :href="msg.metadata.attachment_url" target="_blank" class="sp-img-bubble">
+                          <img :src="msg.metadata.attachment_url" :alt="msg.metadata.attachment_name">
+                      </a>
+                  </template>
+                  <!-- Non-image file -->
+                  <template x-if="msg.metadata && !isImage(msg.metadata.attachment_mime)">
+                      <a :href="msg.metadata.attachment_url" target="_blank"
+                        :class="['sp-file-bubble', isOwnMessage(msg) ? 'own' : 'other']">
+                          <span class="sp-file-icon">📄</span>
+                          <div class="sp-file-info">
+                              <div class="sp-file-info-name" x-text="msg.metadata.attachment_name"></div>
+                              <div class="sp-file-info-size" x-text="formatBytes(msg.metadata.attachment_size)"></div>
+                          </div>
+                      </a>
+                  </template>
+
+                  <!-- Optional caption -->
+                  <template x-if="msg.body">
+                      <div :class="['sp-bubble', isOwnMessage(msg) ? 'own' : 'other']"
+                          x-text="msg.body" style="margin-top: 4px;"></div>
+                  </template>
+
+                  <div class="sp-time" x-text="formatTime(msg.created_at)"></div>
+              </div>
+          </template>
         </template>
       </div>
-
       <!-- Input bar -->
-      <div class="sp-input-row">
-        <input class="sp-input"
-               type="text"
-               placeholder="Type a message…"
-               x-model="inputText"
-               @keydown.enter.prevent="sendMessage()"/>
-        <button class="sp-send"
-                :disabled="!inputText.trim() || sending"
-                @click="sendMessage()">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
-        </button>
-      </div>
-    </div>
-  </template>
-</div>
+      <div class="sp-input-row" style="flex-direction: column; padding: 0; gap: 0;">
+        <!-- File preview strip -->
+        <div class="sp-file-preview" x-show="stagedFile" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            <span class="sp-file-preview-name" x-text="stagedFile?.name"></span>
+            <span style="opacity:.5; font-size:.7rem;" x-text="stagedFile ? formatBytes(stagedFile.size) : ''"></span>
+            <button class="sp-file-preview-remove" @click="removeSupportFile()">×</button>
+        </div>
+
+        <div x-show="typingText" 
+            x-transition.opacity
+            style="padding: 4px 14px 6px; font-size: .72rem; color: var(--txt-3); display: flex; align-items: center; gap: 6px;">
+            <div style="display: flex; gap: 3px; align-items: center;">
+                <span style="width:5px;height:5px;border-radius:50%;background:var(--txt-3);animation:dot-bounce .8s infinite 0s"></span>
+                <span style="width:5px;height:5px;border-radius:50%;background:var(--txt-3);animation:dot-bounce .8s infinite .15s"></span>
+                <span style="width:5px;height:5px;border-radius:50%;background:var(--txt-3);animation:dot-bounce .8s infinite .3s"></span>
+            </div>
+            <span x-text="typingText"></span>
+        </div>
+
+        <!-- Seen receipt -->
+        <div x-show="seenBy" x-transition.opacity
+            style="padding: 0 14px 4px; font-size: .68rem; color: var(--txt-3); text-align: right;">
+            ✓✓ Seen by <span x-text="seenBy"></span>
+        </div>
+
+        <!-- Input row -->
+        <div style="display:flex; align-items:center; gap:8px; padding: 10px 12px 14px;">
+            <button class="sp-attach-btn" @click="$refs.spFileInput.click()" title="Attach file">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+            </button>
+            <input type="file" x-ref="spFileInput" @change="handleSupportFile($event)" style="display:none;"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp">
+            <input class="sp-input"
+                  type="text"
+                  placeholder="Type a message…"
+                  x-model="inputText"
+                  @input="inputText ? _broadcastTyping(true) : _broadcastTyping(false)"
+                  @keydown.enter.prevent="sendMessage()"
+                  @blur="_broadcastTyping(false)"/>
+            <button class="sp-send"
+                    :disabled="(!inputText.trim() && !stagedFile) || sending"
+                    @click="sendMessage()">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+            </button>
+        </div>
+      </div> <!-- ✅ closes sp-input-row -->
+    </div> <!-- ✅ closes sp-messages-wrap -->
+  </template> <!-- ✅ closes x-if="threadId" -->
+</div> <!-- ✅ closes support panel -->
 
 <!-- Toast notification (login required etc.) -->
 <div id="toast">
@@ -1042,7 +1227,7 @@
 
 <script src="{{ asset('js/chatbot.js') }}?v=28"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
-<script src="{{ asset('js/support.js') }}?v=11"></script>
+<script src="{{ asset('js/support.js') }}?v=15"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

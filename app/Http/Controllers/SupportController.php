@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Events\UserTyping;
+use App\Events\MessageSeen;
 
 class SupportController extends Controller
 {
@@ -126,32 +128,55 @@ class SupportController extends Controller
      * Send a plain text message to a thread.
      */
     public function send(Request $request, int $threadId): JsonResponse
-    {
-        $thread = SupportThread::findOrFail($threadId);
-        $this->authorizeThread($request->user(), $thread);
+{
+    $thread = SupportThread::findOrFail($threadId);
+    $this->authorizeThread($request->user(), $thread);
 
-        $validated = $request->validate([
-            'body' => 'required|string|max:2000',
-        ]);
+    $request->validate([
+        'body' => 'nullable|string|max:2000',
+        'file' => 'nullable|file|mimes:pdf,txt,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,webp|max:10240',
+    ]);
 
-        $message = SupportMessage::create([
-            'thread_id' => $thread->id,
-            'sender_id' => $request->user()->id,
-            'body'      => $validated['body'],
-            'type'      => 'text',
-        ]);
-
-        // Touch thread so it sorts to top in admin thread list
-        $thread->touch();
-
-        return response()->json([
-            'id'         => $message->id,
-            'body'       => $message->body,
-            'sender_id'  => $message->sender_id,
-            'type'       => 'text',
-            'created_at' => $message->created_at->toISOString(),
-        ], 201);
+    if (!$request->filled('body') && !$request->hasFile('file')) {
+        return response()->json(['error' => 'Message or file is required.'], 422);
     }
+
+    $metadata = null;
+    $type     = 'text';
+
+    if ($request->hasFile('file')) {
+        $file = $request->file('file');
+        $path = $file->store('support-attachments', 'public');
+
+        $type     = 'file';
+        $metadata = [
+            'attachment_path' => $path,
+            'attachment_url'  => asset('storage/' . $path),
+            'attachment_name' => $file->getClientOriginalName(),
+            'attachment_mime' => $file->getMimeType(),
+            'attachment_size' => $file->getSize(),
+        ];
+    }
+
+    $message = SupportMessage::create([
+        'thread_id' => $thread->id,
+        'sender_id' => $request->user()->id,
+        'body'      => $request->input('body', ''),
+        'type'      => $type,
+        'metadata'  => $metadata,
+    ]);
+
+    $thread->touch();
+
+    return response()->json([
+        'id'         => $message->id,
+        'body'       => $message->body,
+        'sender_id'  => $message->sender_id,
+        'type'       => $message->type,
+        'metadata'   => $message->metadata,
+        'created_at' => $message->created_at->toISOString(),
+    ], 201);
+}
 
     /**
      * Upload call recording, transcribe with Qwen audio, generate meeting notes,
@@ -245,7 +270,6 @@ class SupportController extends Controller
 
         $query = $thread->messages()->where('is_read', false);
 
-        // Admins mark user messages as read, users mark admin messages as read
         if ($request->user()->role === 'admin') {
             $query->whereHas('sender', fn($q) => $q->where('role', 'user'));
         } else {
@@ -253,6 +277,12 @@ class SupportController extends Controller
         }
 
         $query->update(['is_read' => true]);
+
+        broadcast(new MessageSeen(
+            threadId: $thread->id,
+            seenByUserId: $request->user()->id,
+            seenByName: $request->user()->name
+        ));
 
         return response()->json(['success' => true]);
     }
@@ -266,5 +296,20 @@ class SupportController extends Controller
         if ($user->role !== 'admin' && $thread->user_id !== $user->id) {
             abort(403, 'Forbidden.');
         }
+    }
+
+    public function typing(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        broadcast(new UserTyping(
+            threadId: $thread->id,
+            userId: $request->user()->id,
+            userName: $request->user()->name,
+            isTyping: (bool) $request->input('is_typing', true)
+        ));
+
+        return response()->json(['success' => true]);
     }
 }

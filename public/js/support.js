@@ -19,6 +19,16 @@ window.supportApp = function () {
         lastTs:     null,           // ISO timestamp of last fetched message
         _pollTimer: null,
 
+        stagedFile: null,
+
+        typingUsers: {},      // { userId: { name, timer } }
+        seenBy: '',           // pangalan ng nakakita
+        _reverbChannel: null,
+
+        partnerOnline: false,
+        _partnerOnlineTimer: null,
+        messagesSeen: false, // naging blue na ba ang checks
+
         // Admin thread list
         threads:        [],
         activeUserId:   null,
@@ -35,6 +45,11 @@ window.supportApp = function () {
                     this.unreadCount = 0;
                     window.dispatchEvent(new CustomEvent('support-unread', { detail: 0 }));
                     setTimeout(() => this._scrollToBottom(), 50);
+
+                    // ✅ DAGDAG — markAsSeen agad kapag nabuksan ang panel
+                    if (this.threadId) {
+                        this.markAsSeen(this.threadId);
+                    }
                 }
             });
 
@@ -150,6 +165,8 @@ window.supportApp = function () {
             this._clearPoll();
             this.messages = [];
             this.lastTs   = null;
+            this.messagesSeen = false; // ← DAGDAG
+            this.partnerOnline = false; // ← DAGDAG
 
             const url = userId
                 ? `/api/support/thread?user_id=${userId}`
@@ -163,6 +180,8 @@ window.supportApp = function () {
                 // Load initial messages
                 await this.fetchMessages(false);
                 this._startPoll();
+                // Subscribe sa Reverb channel para sa real-time events
+                this._subscribeReverb(d.thread_id);
             } catch (e) {
                 console.error('[Support] openThread failed', e.message);
             }
@@ -173,6 +192,63 @@ window.supportApp = function () {
             this._clearPoll();
             this._pollTimer = setInterval(() => this.fetchMessages(true), 2000);
         },
+
+        _subscribeReverb(threadId) {
+        if (this._reverbChannel) {
+            window.Echo?.leave(`support.thread.${this._reverbChannel}`);
+        }
+        this._reverbChannel = threadId;
+
+        window.Echo?.channel(`support.thread.${threadId}`)
+            .listen('.user.typing', (e) => {
+                if (e.userId === this.userId) return;
+
+                // ← DAGDAG: Kung may typing event = online ang partner
+                this._setPartnerOnline();
+
+                if (e.isTyping) {
+                    this.typingUsers[e.userId] = e.userName;
+                } else {
+                    delete this.typingUsers[e.userId];
+                }
+            })
+            .listen('.message.seen', (e) => {
+                if (e.seenByUserId !== this.userId) {
+                    this.messagesSeen = true; // ← blue agad lahat ng checks
+                    this.seenBy = e.seenByName;
+                    setTimeout(() => { this.seenBy = ''; }, 10000);
+                }
+            });
+        },
+
+        _setPartnerOnline() {
+            this.partnerOnline = true;
+            // I-reset ang online status after 30 seconds ng walang activity
+            if (this._partnerOnlineTimer) clearTimeout(this._partnerOnlineTimer);
+            this._partnerOnlineTimer = setTimeout(() => {
+                this.partnerOnline = false;
+            }, 30000);
+        },
+
+        _broadcastTyping(isTyping) {
+            if (!this.threadId) return;
+            fetch(`/api/support/thread/${this.threadId}/typing`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': this._csrf(),
+                },
+                body: JSON.stringify({ is_typing: isTyping }),
+            }).catch(() => {});
+        },
+
+        get typingText() {
+            const names = Object.values(this.typingUsers);
+            if (names.length === 0) return '';
+            if (names.length === 1) return `${names[0]} is typing…`;
+            return 'Several people are typing…';
+        },
+
 
         _clearPoll() {
             if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
@@ -193,17 +269,17 @@ window.supportApp = function () {
                     this.messages = incremental
                         ? [...this.messages, ...d.messages]
                         : d.messages;
-                    
-                    if (incremental && !this.open) {
-                        this.unreadCount += d.messages.length;
-                        window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
-                    } else if (incremental && this.open) {
-                        // If panel is open, mark new incoming messages as seen immediately
-                        await this.markAsSeen(this.threadId);
-                    }
 
                     this.lastTs = d.messages[d.messages.length - 1].created_at;
                     this._scrollToBottom();
+
+                    // ✅ PALITAN — markAsSeen AGAD kapag bukas ang panel, hindi lang count
+                    if (this.open) {
+                        await this.markAsSeen(this.threadId);
+                    } else {
+                        this.unreadCount += d.messages.length;
+                        window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
+                    }
                 }
             } catch (e) {
                 console.warn('[Support] Fetch messages failed', e.message);
@@ -213,27 +289,53 @@ window.supportApp = function () {
         // ── Send message ──────────────────────────────────────────
         async sendMessage() {
             const body = this.inputText.trim();
-            if (!body || this.sending || !this.threadId) return;
+            if ((!body && !this.stagedFile) || this.sending || !this.threadId) return;
+
+            this._broadcastTyping(false);
 
             this.sending   = true;
             this.inputText = '';
+            const fileToSend = this.stagedFile;
+            this.stagedFile  = null;
 
             try {
+                const formData = new FormData();
+                if (body)       formData.append('body', body);
+                if (fileToSend) formData.append('file', fileToSend);
+
                 await fetch(`/api/support/thread/${this.threadId}/message`, {
                     method:  'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': this._csrf(),
-                    },
-                    body: JSON.stringify({ body }),
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                    body:    formData,
                 });
-                // Immediately fetch to show the new message
+
                 await this.fetchMessages(true);
             } catch (e) {
                 console.error('[Support] Send failed', e.message);
             } finally {
                 this.sending = false;
             }
+        },
+
+        handleSupportFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            this.stagedFile = file;
+            e.target.value = '';
+        },
+
+        removeSupportFile() {
+            this.stagedFile = null;
+        },
+
+        formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        },
+
+        isImage(mime) {
+            return mime && mime.startsWith('image/');
         },
 
         // ── Trigger call (from within support chat) ───────────────

@@ -102,6 +102,7 @@ Route::prefix('api/support')->name('support.')->middleware(['auth', 'verified'])
     Route::post('/thread/{threadId}/mark-seen', [SupportController::class, 'markAsSeen'])->name('mark-seen');
     Route::post('/thread/{threadId}/message', [SupportController::class, 'send'])->name('send');
     Route::post('/thread/{threadId}/meeting', [SupportController::class, 'saveMeeting'])->name('meeting');
+    Route::post('/thread/{threadId}/typing', [SupportController::class, 'typing'])->name('typing');
 });
 
 // ── Profile API (auth required, verified) ─────────────────────────────────────
