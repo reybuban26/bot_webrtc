@@ -69,6 +69,19 @@ class PushController extends Controller
             );
         }
 
-        $webPush->flush();
+        foreach ($webPush->flush() as $report) {
+            if (!$report->isSuccess()) {
+                \Log::error('[Push] FAILED', [
+                    'endpoint' => $report->getEndpoint(),
+                    'reason'   => $report->getReason(),
+                    'expired'  => $report->isSubscriptionExpired(),
+                ]);
+                if ($report->isSubscriptionExpired()) {
+                    PushSubscription::where('endpoint', $report->getEndpoint())->delete();
+                }
+            } else {
+                \Log::info('[Push] Sent OK', ['endpoint' => substr($report->getEndpoint(), 0, 60)]);
+            }
+        }
     }
 }
