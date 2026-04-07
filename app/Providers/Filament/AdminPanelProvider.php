@@ -6,6 +6,10 @@ use App\Filament\Resources\ChatMessageResource;
 use App\Filament\Resources\ChatSessionResource;
 use App\Filament\Widgets\ChatStatsWidget;
 use App\Filament\Widgets\RecentMessagesWidget;
+use App\Filament\Widgets\CallDurationWidget;
+use App\Filament\Widgets\TicketsResolvedWidget;
+use App\Filament\Widgets\TokenUsageWidget;
+use App\Filament\Widgets\TokenCostWidget;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -20,6 +24,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Leandrocfe\FilamentApexCharts\FilamentApexChartsPlugin;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -42,6 +47,10 @@ class AdminPanelProvider extends PanelProvider
             ->brandName('AI Chatbot Admin')
             ->brandLogo(null)
             ->favicon(null)
+            // ── ApexCharts Plugin ──────────────────────────────────────────
+            ->plugins([
+                FilamentApexChartsPlugin::make(),
+            ])
             ->renderHook(
                 'panels::head.end',
                 fn () => new \Illuminate\Support\HtmlString(
@@ -87,6 +96,10 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 ChatStatsWidget::class,
                 RecentMessagesWidget::class,
+                CallDurationWidget::class,
+                TicketsResolvedWidget::class,
+                TokenUsageWidget::class,
+                TokenCostWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,
