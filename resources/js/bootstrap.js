@@ -21,7 +21,18 @@ async function registerPush() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
     try {
+        // ✅ I-register ang SW at hintayin na maging ready
         const reg = await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.ready; // ← MAHALAGANG DAGDAG
+
+        // Check kung naka-subscribe na
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) {
+            // I-save na lang ang existing subscription
+            await saveSubscription(existing);
+            return;
+        }
+
         const vapidRes = await fetch('/api/push/vapid-key');
         const { key } = await vapidRes.json();
 
@@ -30,17 +41,25 @@ async function registerPush() {
             applicationServerKey: urlBase64ToUint8Array(key),
         });
 
-        await fetch('/api/push/subscribe', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
-            },
-            body: JSON.stringify(sub.toJSON()),
-        });
+        await saveSubscription(sub);
     } catch (err) {
         console.warn('[Push] Registration failed:', err);
+        // Tukuyin if it's Brave / AbortError
+        if (err.name === 'AbortError' || (err.message && err.message.includes('AbortError'))) {
+            alert('Push services disabled. Kung gamit mo ay Brave Browser, pakibuksan ang brave://settings/privacy at i-enable ang "Use Google services for push messaging" para maka-receive ng notifications.');
+        }
     }
+}
+
+async function saveSubscription(sub) {
+    await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+        },
+        body: JSON.stringify(sub.toJSON()),
+    });
 }
 
 function urlBase64ToUint8Array(base64String) {

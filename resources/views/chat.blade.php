@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link rel="manifest" href="/manifest.json">
 <meta name="csrf-token" content="{{ csrf_token() }}"/>
 <meta name="agora-app-id" content="{{ config('services.agora.app_id') }}"/>
 <meta name="stun-server" content="{{ config('services.webrtc.stun', 'stun:stun.l.google.com:19302') }}"/>
