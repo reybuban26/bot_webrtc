@@ -157,6 +157,11 @@ window.supportApp = function () {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
                 });
+                // Admin claiming a waiting thread: update local status immediately
+                // so the header switches to "🟢 Connected" without needing a refresh
+                if (this.userRole === 'admin' && this.chatStatus === 'waiting') {
+                    this.chatStatus = 'active';
+                }
             } catch (e) {
                 console.warn('[Support] markAsSeen failed', e);
             }
@@ -242,6 +247,11 @@ window.supportApp = function () {
                     }
                 })
                 .listen('.system.message', (e) => {
+                    // Update chat status in real-time (e.g. 'active' when admin connects)
+                    if (e.chatStatus) {
+                        this.chatStatus = e.chatStatus;
+                    }
+
                     // Dedup: don't push if we already have this message
                     if (this.messages.some(m => m.id === e.messageId)) return;
 

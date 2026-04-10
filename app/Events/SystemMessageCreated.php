@@ -15,6 +15,7 @@ class SystemMessageCreated implements ShouldBroadcastNow
         public int    $messageId,
         public string $body,
         public string $createdAt,
+        public string $chatStatus = 'waiting',
     ) {}
 
     public function broadcastOn(): Channel

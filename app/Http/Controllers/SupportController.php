@@ -344,10 +344,11 @@ class SupportController extends Controller
                     "You are now chatting with {$firstName}."
                 );
                 broadcast(new SystemMessageCreated(
-                    threadId:  $thread->id,
-                    messageId: $sysMsg->id,
-                    body:      $sysMsg->body,
-                    createdAt: $sysMsg->created_at->toISOString(),
+                    threadId:   $thread->id,
+                    messageId:  $sysMsg->id,
+                    body:       $sysMsg->body,
+                    createdAt:  $sysMsg->created_at->toISOString(),
+                    chatStatus: 'active',
                 ));
             }
         }
