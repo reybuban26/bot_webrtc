@@ -7,102 +7,106 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/css/theme.css"/>
+<script src="/js/theme.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Inter', sans-serif;
-    background: #f4f6fb;
-    color: #111827;
+    background: var(--auth-bg);
+    color: var(--auth-text);
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-font-smoothing: antialiased;
+    transition: background .3s, color .3s;
   }
   body::before {
     content: '';
     position: fixed; inset: 0; pointer-events: none;
     background:
-      radial-gradient(ellipse 70% 50% at 15% 20%, rgba(91,94,244,.08) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 50% at 85% 80%, rgba(124,127,247,.06) 0%, transparent 60%);
+      radial-gradient(ellipse 70% 50% at 15% 20%, var(--auth-blob1) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 85% 80%, var(--auth-blob2) 0%, transparent 60%);
   }
   .card {
-    background: #ffffff;
-    border: 1px solid rgba(0,0,0,.07);
+    background: var(--auth-card-bg);
+    border: 1px solid var(--auth-card-border);
     border-radius: 20px;
     padding: 40px 38px;
     width: 100%;
     max-width: 400px;
-    box-shadow: 0 4px 24px rgba(0,0,0,.08), 0 1px 4px rgba(0,0,0,.05);
+    box-shadow: var(--auth-card-shadow);
     position: relative; z-index: 1;
     animation: slideUp .35s ease;
+    transition: background .3s, border-color .3s, box-shadow .3s;
   }
   @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
   .logo { display: flex; align-items: center; gap: 11px; margin-bottom: 28px; }
   .logo-icon {
     width: 40px; height: 40px; border-radius: 11px;
-    background: #5b5ef4;
+    background: var(--auth-accent);
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 14px rgba(91,94,244,.35);
+    box-shadow: 0 4px 14px var(--auth-accent-glow);
   }
   .logo-icon svg { width: 20px; height: 20px; color: #fff; }
-  .logo-text h1 { font-size: 1rem; font-weight: 700; color: #111827; }
-  .logo-text p  { font-size: .68rem; color: #9ca3af; margin-top: 1px; }
+  .logo-text h1 { font-size: 1rem; font-weight: 700; color: var(--auth-text); }
+  .logo-text p  { font-size: .68rem; color: var(--auth-text-3); margin-top: 1px; }
 
-  h2 { font-size: 1.5rem; font-weight: 800; color: #111827; margin-bottom: 5px; }
-  .subtitle { font-size: .83rem; color: #6b7280; margin-bottom: 26px; line-height: 1.4; }
+  h2 { font-size: 1.5rem; font-weight: 800; color: var(--auth-text); margin-bottom: 5px; }
+  .subtitle { font-size: .83rem; color: var(--auth-text-2); margin-bottom: 26px; line-height: 1.4; }
 
   .field { margin-bottom: 16px; }
   label {
     display: block; font-size: .78rem; font-weight: 500;
-    color: #374151; margin-bottom: 6px;
+    color: var(--auth-text-label); margin-bottom: 6px;
   }
   input[type=email], input[type=text], input[type=password] {
     width: 100%; padding: 11px 14px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
+    background: var(--auth-input-bg);
+    border: 1px solid var(--auth-input-border);
     border-radius: 10px;
-    color: #111827; font-family: inherit; font-size: .87rem;
-    outline: none; transition: border-color .18s, box-shadow .18s;
+    color: var(--auth-text); font-family: inherit; font-size: .87rem;
+    outline: none; transition: border-color .18s, box-shadow .18s, background .18s;
   }
   input:focus {
-    border-color: #5b5ef4;
-    box-shadow: 0 0 0 3px rgba(91,94,244,.12);
-    background: #fff;
+    border-color: var(--auth-accent);
+    box-shadow: 0 0 0 3px var(--auth-accent-ring);
+    background: var(--auth-input-focus-bg);
   }
-  input::placeholder { color: #d1d5db; }
-  
+  input::placeholder { color: var(--auth-placeholder); }
+
   .btn-primary {
     width: 100%; padding: 12px; margin-top: 10px;
-    background: #5b5ef4;
+    background: var(--auth-accent);
     border: none; border-radius: 10px;
     color: #fff; font-family: inherit; font-size: .9rem; font-weight: 600;
     cursor: pointer; transition: all .18s;
   }
-  .btn-primary:hover { background: #4d50e0; box-shadow: 0 4px 20px rgba(91,94,244,.35); transform: translateY(-1px); }
-  .btn-primary:disabled { background: #a5a7f4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-primary:hover { background: var(--auth-accent-hover); box-shadow: 0 4px 20px var(--auth-accent-glow); transform: translateY(-1px); }
+  .btn-primary:disabled { background: var(--auth-btn-disabled); cursor: not-allowed; transform: none; box-shadow: none; }
 
   .back-link {
     text-align: center; margin-top: 20px;
-    font-size: .78rem; color: #9ca3af;
+    font-size: .78rem; color: var(--auth-text-3);
   }
-  .back-link a { color: #5b5ef4; text-decoration: none; font-weight: 500; }
+  .back-link a { color: var(--auth-accent); text-decoration: none; font-weight: 500; }
   .back-link a:hover { text-decoration: underline; }
 
   .alert {
     border-radius: 10px; padding: 11px 14px;
     font-size: .8rem; margin-bottom: 18px; display: none;
   }
-  .alert.error { background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.2); color: #ef4444; }
-  .alert.success { background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.2); color: #16a34a; }
+  .alert.error { background: var(--auth-error-bg); border: 1px solid var(--auth-error-border); color: var(--auth-error); }
+  .alert.success { background: var(--auth-success-bg); border: 1px solid var(--auth-success-border); color: var(--auth-success); }
 
   /* Password Strength */
   .password-input-wrapper { display: flex; align-items: center; position: relative; width: 100%; }
   .password-input-wrapper input { padding-right: 40px; width: 100%; }
-  .password-toggle { position: absolute; right: 12px; cursor: pointer; color: #9ca3af; display: flex; }
-  
+  .password-toggle { position: absolute; right: 12px; cursor: pointer; color: var(--auth-text-3); display: flex; }
+
   .pw-strength {
-    background: #f3f4f6; border-radius: 8px; 
+    background: var(--auth-pw-bg); border-radius: 8px;
     margin-top: 0; padding: 0 14px;
     opacity: 0; max-height: 0; overflow: hidden;
     transition: all 0.6s ease-in-out;
@@ -114,17 +118,17 @@
   .pw-header.weak   { color: #ef4444; }
   .pw-header.fair   { color: #eab308; }
   .pw-header.strong { color: #22c55e; }
-  
+
   .pw-bars { display: flex; gap: 4px; margin-bottom: 14px; }
-  .pw-bar { height: 4px; flex: 1; border-radius: 2px; background: #d1d5db; transition: background .3s; }
-  
-  .pw-list { list-style: none; font-size: .78rem; color: #6b7280; display: flex; flex-direction: column; gap: 8px; }
+  .pw-bar { height: 4px; flex: 1; border-radius: 2px; background: var(--auth-pw-bar); transition: background .3s; }
+
+  .pw-list { list-style: none; font-size: .78rem; color: var(--auth-text-2); display: flex; flex-direction: column; gap: 8px; }
   .pw-list li { display: flex; align-items: center; gap: 8px; }
-  .pw-list li.valid { color: #111827; }
+  .pw-list li.valid { color: var(--auth-pw-valid); }
   .icon-wrap { width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-  .icon-wrap.icon-x { background: #e5e7eb; color: #9ca3af; }
+  .icon-wrap.icon-x { background: var(--auth-icon-x-bg); color: var(--auth-icon-x-color); }
   .icon-wrap.icon-x svg { width: 10px; height: 10px; stroke-width: 3; }
-  .icon-wrap.icon-check { background: #dcfce7; color: #22c55e; }
+  .icon-wrap.icon-check { background: var(--auth-check-bg); color: var(--auth-check-color); }
   .icon-wrap.icon-check svg { width: 10px; height: 10px; stroke-width: 3; }
 
   /* Steps visibility */
@@ -138,18 +142,23 @@
   .otp-box {
     width: 48px; height: 56px;
     text-align: center; font-size: 1.5rem; font-weight: 700;
-    border: 1px solid #e5e7eb; border-radius: 12px;
-    background: #f9fafb; outline: none; transition: all 0.2s;
-    color: #111827; box-shadow: inset 0 2px 4px rgba(0,0,0,.02);
+    border: 1px solid var(--auth-otp-border); border-radius: 12px;
+    background: var(--auth-otp-bg); outline: none; transition: all 0.2s;
+    color: var(--auth-text); box-shadow: var(--auth-otp-shadow);
   }
   .otp-box:focus {
-    border-color: #5b5ef4; box-shadow: 0 0 0 3px rgba(91,94,244,.12), inset 0 2px 4px rgba(0,0,0,.02); background: #fff;
+    border-color: var(--auth-accent); box-shadow: 0 0 0 3px var(--auth-accent-ring), var(--auth-otp-shadow); background: var(--auth-input-focus-bg);
   }
 </style>
 </head>
 <body>
 
 <div class="card">
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+    <svg class="icon-sun" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    <svg class="icon-moon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+  </button>
+
   <div class="logo">
     <div class="logo-icon">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -191,9 +200,9 @@
     <input type="hidden" id="otp" value="" />
     <button type="button" class="btn-primary" id="btnVerifyOtp">Verify OTP</button>
 
-    <div style="text-align: center; margin-top: 15px; font-size: 0.8rem; color: #6b7280;">
-      Didn't receive the code? 
-      <button type="button" id="btnResendOtp" style="background: none; border: none; color: #a5a7f4; font-weight: 600; cursor: not-allowed; padding: 0; outline: none; font-family: inherit;" disabled>Resend OTP</button>
+    <div style="text-align: center; margin-top: 15px; font-size: 0.8rem; color: var(--auth-text-2);">
+      Didn't receive the code?
+      <button type="button" id="btnResendOtp" style="background: none; border: none; color: var(--auth-resend-dim); font-weight: 600; cursor: not-allowed; padding: 0; outline: none; font-family: inherit;" disabled>Resend OTP</button>
     </div>
   </div>
 
@@ -209,7 +218,7 @@
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:20px;height:20px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
         </div>
       </div>
-      
+
       <div class="pw-strength" id="pwStrengthContainer">
         <div class="pw-header weak">
           <span class="pw-icon"></span>
@@ -244,7 +253,7 @@
   <div id="step-success" style="text-align: center;">
     <h2>Password Updated!</h2>
     <p class="subtitle" style="margin-bottom: 30px;">Your password has been changed successfully. You can now sign in with your new credentials.</p>
-    <a href="/login" style="display:inline-block; padding: 12px 24px; background: #5b5ef4; color:#fff; border-radius:10px; text-decoration:none; font-weight:600;">Go to Login</a>
+    <a href="/login" style="display:inline-block; padding: 12px 24px; background: var(--auth-accent); color:#fff; border-radius:10px; text-decoration:none; font-weight:600;">Go to Login</a>
   </div>
 
   <div class="back-link" id="backLink" style="display: block;">
@@ -274,7 +283,7 @@
     const input = document.getElementById('password');
     const container = document.getElementById('pwStrengthContainer');
     if(!input || !container) return;
-    
+
     const header = container.querySelector('.pw-header');
     const text = container.querySelector('.pw-text');
     const icon = container.querySelector('.pw-icon');
@@ -283,7 +292,7 @@
     const reqUp = container.querySelector('.req-up');
     const reqNum = container.querySelector('.req-num');
     const reqSp = container.querySelector('.req-sp');
-    
+
     const svgX = `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>`;
     const svgCheck = `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>`;
     const iconWeak = `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
@@ -316,21 +325,21 @@
       const hasUp = /[A-Z]/.test(val);
       const hasNum = /[0-9]/.test(val);
       const hasSp = /[!@#$%^&*(),.?":{}|<>]/.test(val);
-      
+
       updateReq(reqLen, hasLen);
       updateReq(reqUp, hasUp);
       updateReq(reqNum, hasNum);
       updateReq(reqSp, hasSp);
-      
+
       let score = 0;
       if(hasLen) score++;
       if(hasUp) score++;
       if(hasNum) score++;
       if(hasSp) score++;
-      
-      bars.forEach(b => b.style.background = '#d1d5db');
+
+      bars.forEach(b => b.style.background = 'var(--auth-pw-bar)');
       header.className = 'pw-header';
-      
+
       if(score <= 2) {
         text.textContent = 'Weak';
         bars[0].style.background = '#ef4444';
@@ -360,16 +369,15 @@
   }
   function hideAlert() { alertBox.style.display = 'none'; }
 
-  // Resend Timer Logic
   const resendBtn = document.getElementById('btnResendOtp');
   function startResendCooldown() {
     let timeLeft = 120;
     resendBtn.disabled = true;
-    resendBtn.style.color = '#a5a7f4';
+    resendBtn.style.color = 'var(--auth-resend-dim)';
     resendBtn.style.cursor = 'not-allowed';
     resendBtn.style.textDecoration = 'none';
     resendBtn.textContent = `Resend OTP (${timeLeft}s)`;
-    
+
     if(countdownTimer) clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
       timeLeft--;
@@ -377,7 +385,7 @@
       if(timeLeft <= 0) {
         clearInterval(countdownTimer);
         resendBtn.disabled = false;
-        resendBtn.style.color = '#5b5ef4';
+        resendBtn.style.color = 'var(--auth-accent)';
         resendBtn.style.cursor = 'pointer';
         resendBtn.textContent = 'Resend OTP';
       }
@@ -389,8 +397,8 @@
 
   async function requestOtp(email) {
     return await fetch('/api/auth/forgot-password', {
-      method: 'POST', 
-      headers: { 
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': csrfToken
       },
@@ -398,12 +406,11 @@
     });
   }
 
-  // 1. Send OTP
   document.getElementById('btnSendOtp').addEventListener('click', async (e) => {
     const btn = e.target;
     const email = document.getElementById('email').value.trim();
     if(!email) return showAlert('Please enter your email.');
-    
+
     btn.disabled = true; btn.textContent = 'Sending...'; hideAlert();
     try {
       const res = await requestOtp(email);
@@ -421,13 +428,12 @@
     btn.disabled = false; btn.textContent = 'Send OTP';
   });
 
-  // Resend OTP Action
   resendBtn.addEventListener('click', async (e) => {
     if(e.target.disabled) return;
     e.target.textContent = 'Sending...';
     e.target.disabled = true;
     e.target.style.cursor = 'not-allowed';
-    e.target.style.color = '#a5a7f4';
+    e.target.style.color = 'var(--auth-resend-dim)';
     e.target.style.textDecoration = 'none';
     hideAlert();
     try {
@@ -438,28 +444,25 @@
         startResendCooldown();
       } else {
         showAlert(data.error || data.message || 'Error resending email.');
-        // Re-enable if error
         e.target.disabled = false;
         e.target.textContent = 'Resend OTP';
-        e.target.style.color = '#5b5ef4';
+        e.target.style.color = 'var(--auth-accent)';
         e.target.style.cursor = 'pointer';
       }
-    } catch (err) { 
-        showAlert('Network error. Try again.'); 
-        e.target.disabled = false; 
+    } catch (err) {
+        showAlert('Network error. Try again.');
+        e.target.disabled = false;
         e.target.textContent = 'Resend OTP';
-        e.target.style.color = '#5b5ef4';
+        e.target.style.color = 'var(--auth-accent)';
         e.target.style.cursor = 'pointer';
     }
   });
 
-  // OTP Input Logic
   const otpBoxes = document.querySelectorAll('.otp-box');
   const otpHidden = document.getElementById('otp');
 
   otpBoxes.forEach((box, index) => {
     box.addEventListener('input', (e) => {
-      // Allow only numbers
       box.value = box.value.replace(/[^0-9]/g, '');
       if (box.value && index < otpBoxes.length - 1) {
         otpBoxes[index + 1].focus();
@@ -473,7 +476,6 @@
       }
     });
 
-    // Handle paste event
     box.addEventListener('paste', (e) => {
       e.preventDefault();
       const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
@@ -492,7 +494,6 @@
     otpHidden.value = Array.from(otpBoxes).map(b => b.value).join('');
   }
 
-  // 2. Verify OTP
   document.getElementById('btnVerifyOtp').addEventListener('click', async (e) => {
     const btn = e.target;
     const otp = document.getElementById('otp').value.trim();
@@ -501,8 +502,8 @@
     btn.disabled = true; btn.textContent = 'Verifying...'; hideAlert();
     try {
       const res = await fetch('/api/auth/verify-otp', {
-        method: 'POST', 
-        headers: { 
+        method: 'POST',
+        headers: {
           'Content-Type': 'application/json',
           'X-CSRF-TOKEN': csrfToken
         },
@@ -521,20 +522,19 @@
     btn.disabled = false; btn.textContent = 'Verify OTP';
   });
 
-  // 3. Reset Password
   document.getElementById('btnResetPass').addEventListener('click', async (e) => {
     const btn = e.target;
     const password = document.getElementById('password').value;
     const password_confirmation = document.getElementById('password_confirmation').value;
-    
+
     if(password.length < 8) return showAlert('Password must be at least 8 characters.');
     if(password !== password_confirmation) return showAlert('Passwords do not match.');
 
     btn.disabled = true; btn.textContent = 'Saving...'; hideAlert();
     try {
       const res = await fetch('/api/auth/reset-password', {
-        method: 'POST', 
-        headers: { 
+        method: 'POST',
+        headers: {
           'Content-Type': 'application/json',
           'X-CSRF-TOKEN': csrfToken
         },

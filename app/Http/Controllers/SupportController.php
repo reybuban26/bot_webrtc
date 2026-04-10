@@ -57,7 +57,9 @@ class SupportController extends Controller
                 'thread_id'         => $t->id,
                 'user_id'           => $t->user_id,
                 'user_name'         => $t->user->name,
-                'last_message'      => $t->latestMessage?->body ?? null,
+                'last_message'      => ($t->latestMessage?->is_encrypted)
+                                        ? '🔒 Encrypted message'
+                                        : ($t->latestMessage?->body ?? null),
                 'last_message_role' => $t->latestMessage?->sender->role ?? null,
                 'unread_count'      => $t->unread_messages_count,
                 'updated_at'        => $t->updated_at?->toISOString(),
@@ -110,14 +112,15 @@ class SupportController extends Controller
             }
 
             return [
-                'id'         => $m->id,
-                'sender_id'  => $m->sender_id,
-                'sender'     => $m->sender->name,
-                'role'       => $m->sender->role,
-                'body'       => $m->body,
-                'type'       => $m->type,
-                'metadata'   => $metadata,
-                'created_at' => $m->created_at->toISOString(),
+                'id'           => $m->id,
+                'sender_id'    => $m->sender_id,
+                'sender'       => $m->sender->name,
+                'role'         => $m->sender->role,
+                'body'         => $m->body,
+                'type'         => $m->type,
+                'metadata'     => $metadata,
+                'is_encrypted' => (bool) $m->is_encrypted,
+                'created_at'   => $m->created_at->toISOString(),
             ];
         });
 
@@ -133,9 +136,13 @@ class SupportController extends Controller
         $this->authorizeThread($request->user(), $thread);
 
         $request->validate([
-            'body' => 'nullable|string|max:2000',
-            'file' => 'nullable|file|mimes:pdf,txt,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,webp|max:10240',
+            'body'         => 'nullable|string|max:65535',
+            'iv'           => 'nullable|string|max:256',
+            'is_encrypted' => 'nullable|boolean',
+            'file'         => 'nullable|file|mimes:pdf,txt,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,gif,webp|max:10240',
         ]);
+
+        $isEncrypted = (bool) $request->input('is_encrypted', false);
 
         if (!$request->filled('body') && !$request->hasFile('file')) {
             return response()->json(['error' => 'Message or file is required.'], 422);
@@ -158,12 +165,23 @@ class SupportController extends Controller
             ];
         }
 
+        // Store encryption IV in metadata if message is E2EE
+        if ($isEncrypted && $request->filled('iv')) {
+            $metadata = array_merge($metadata ?? [], [
+                'encryption' => [
+                    'iv'   => $request->input('iv'),
+                    'algo' => 'AES-GCM',
+                ],
+            ]);
+        }
+
         $message = SupportMessage::create([
-            'thread_id' => $thread->id,
-            'sender_id' => $request->user()->id,
-            'body'      => $request->input('body', ''),
-            'type'      => $type,
-            'metadata'  => $metadata,
+            'thread_id'    => $thread->id,
+            'sender_id'    => $request->user()->id,
+            'body'         => $request->input('body', ''),
+            'type'         => $type,
+            'metadata'     => $metadata,
+            'is_encrypted' => $isEncrypted,
         ]);
 
         $thread->touch();
@@ -176,18 +194,19 @@ class SupportController extends Controller
             PushController::sendToUser(
                 userId: $recipientId,
                 title:  $request->user()->name,
-                body:   $message->body ?: '📎 Sent an attachment',
+                body:   $isEncrypted ? '🔒 New encrypted message' : ($message->body ?: '📎 Sent an attachment'),
                 url:    '/chat'
             );
         }
 
         return response()->json([
-            'id'         => $message->id,
-            'body'       => $message->body,
-            'sender_id'  => $message->sender_id,
-            'type'       => $message->type,
-            'metadata'   => $message->metadata,
-            'created_at' => $message->created_at->toISOString(),
+            'id'           => $message->id,
+            'body'         => $message->body,
+            'sender_id'    => $message->sender_id,
+            'type'         => $message->type,
+            'metadata'     => $message->metadata,
+            'is_encrypted' => (bool) $message->is_encrypted,
+            'created_at'   => $message->created_at->toISOString(),
         ], 201);
     }
 
@@ -328,5 +347,41 @@ class SupportController extends Controller
         ));
 
         return response()->json(['success' => true]);
+    }
+
+    // ── E2EE Thread Key Exchange ──────────────────────────────────────────────
+
+    /**
+     * Store per-user encrypted copies of the thread's AES key.
+     * Body: { "keys": { "<userId>": "<base64_wrapped_key>", ... } }
+     */
+    public function storeThreadKeys(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        $request->validate([
+            'keys'   => 'required|array',
+            'keys.*' => 'required|string|max:8192',
+        ]);
+
+        $thread->update(['encrypted_keys' => $request->input('keys')]);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Retrieve the encrypted thread key map so each participant can
+     * decrypt their copy using their own RSA private key.
+     */
+    public function getThreadKeys(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        return response()->json([
+            'thread_id'     => $thread->id,
+            'encrypted_keys' => $thread->encrypted_keys ?? [],
+        ]);
     }
 }

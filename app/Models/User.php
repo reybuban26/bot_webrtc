@@ -52,6 +52,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
         'dob',
         'phone',
         'avatar',
+        'public_key',
     ];
 
     /** Return a public URL for the avatar, or null if not set. */

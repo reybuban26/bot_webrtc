@@ -40,6 +40,11 @@ window.supportApp = function () {
         userRole: document.querySelector('meta[name="user-role"]')?.content || 'user',
         userId:   parseInt(document.querySelector('meta[name="auth-user-id"]')?.content || '0'),
 
+        // ── E2EE State ────────────────────────────────────────────
+        _privateKey: null,          // RSA private key (CryptoKey, in memory)
+        _publicKeyB64: null,        // own base64 public key (for comparison)
+        _e2eeReady: false,          // true after key pair is loaded/generated
+
         // ── Init ──────────────────────────────────────────────────
         async init() {
             this.$watch('open', val => {
@@ -54,6 +59,9 @@ window.supportApp = function () {
                     }
                 }
             });
+
+            // ── Bootstrap E2EE key pair ───────────────────────────
+            await this._initE2EE();
 
             if (this.userRole === 'admin') {
                 await this.loadThreads();
@@ -174,6 +182,14 @@ window.supportApp = function () {
                 const d  = await r.json();
                 this.threadId = d.thread_id;
 
+                // E2EE: ensure thread has an AES key.
+                // For user opening own thread: partner is any admin (userId 1 or resolved later).
+                // For admin opening user's thread: partner is the user.
+                const partnerUserId = userId
+                    ? parseInt(userId)           // admin → user
+                    : null;                       // user → will be resolved async when admin connects
+                await this._initThreadKey(d.thread_id, partnerUserId);
+
                 // Load initial messages
                 await this.fetchMessages(false);
                 this._startPoll();
@@ -273,9 +289,12 @@ window.supportApp = function () {
                 const d = await r.json();
 
                 if (d.messages?.length) {
+                    // Decrypt any E2EE messages before rendering
+                    const decrypted = await this._decryptMessages(d.messages, this.threadId);
+
                     this.messages = incremental
-                        ? [...this.messages, ...d.messages]
-                        : d.messages;
+                        ? [...this.messages, ...decrypted]
+                        : decrypted;
 
                     this.lastTs = d.messages[d.messages.length - 1].created_at;
                     this._scrollToBottom();
@@ -307,7 +326,20 @@ window.supportApp = function () {
 
             try {
                 const formData = new FormData();
-                if (body)       formData.append('body', body);
+                const threadKey = (this._e2eeReady && typeof E2EE !== 'undefined')
+                    ? E2EE.getCachedThreadKey(this.threadId)
+                    : null;
+
+                if (body && threadKey) {
+                    // E2EE: encrypt before sending
+                    const { ciphertext, iv } = await E2EE.encryptMessage(body, threadKey);
+                    formData.append('body', ciphertext);
+                    formData.append('iv', iv);
+                    formData.append('is_encrypted', '1');
+                } else if (body) {
+                    formData.append('body', body);
+                }
+
                 if (fileToSend) formData.append('file', fileToSend);
 
                 await fetch(`/api/support/thread/${this.threadId}/message`, {
@@ -367,6 +399,142 @@ window.supportApp = function () {
                     }
                 }, 100);
             }
+        },
+
+        // ── E2EE Helpers ──────────────────────────────────────────
+
+        /**
+         * On startup: load or generate the user's RSA key pair, then
+         * register the public key with the server.
+         */
+        async _initE2EE() {
+            if (typeof E2EE === 'undefined') return; // crypto.js not loaded
+            try {
+                this._privateKey = await E2EE.loadPrivateKey();
+
+                if (!this._privateKey) {
+                    // First time on this device — generate a fresh key pair
+                    const { publicKey, privateKey } = await E2EE.generateKeyPair();
+                    await E2EE.savePrivateKey(privateKey);
+                    this._privateKey = privateKey;
+
+                    const pubB64 = await E2EE.exportPublicKey(publicKey);
+                    this._publicKeyB64 = pubB64;
+                    await this._uploadPublicKey(pubB64);
+                }
+
+                this._e2eeReady = true;
+            } catch (err) {
+                console.warn('[E2EE] Key init failed — falling back to plaintext', err);
+            }
+        },
+
+        async _uploadPublicKey(pubB64) {
+            await fetch('/api/user/public-key', {
+                method:  'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': this._csrf(),
+                },
+                body: JSON.stringify({ public_key: pubB64 }),
+            });
+        },
+
+        /**
+         * Ensure the thread has an AES key we can use.
+         * If no key exists yet, we generate one and distribute it to both parties.
+         * @param {number} threadId
+         * @param {number} partnerUserId  — the other participant's user ID
+         */
+        async _initThreadKey(threadId, partnerUserId) {
+            if (!this._e2eeReady || typeof E2EE === 'undefined') return;
+
+            // Check cache first
+            if (E2EE.getCachedThreadKey(threadId)) return;
+
+            try {
+                const r = await fetch(`/api/support/thread/${threadId}/keys`, {
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                });
+                const d = await r.json();
+                const keys = d.encrypted_keys || {};
+                const myWrappedKey = keys[String(this.userId)];
+
+                if (myWrappedKey) {
+                    // Decrypt our copy of the thread key
+                    const threadKey = await E2EE.decryptThreadKey(myWrappedKey, this._privateKey);
+                    E2EE.cacheThreadKey(threadId, threadKey);
+                } else {
+                    // No key yet — we are the first party; generate and distribute
+                    const threadKey   = await E2EE.generateThreadKey();
+                    const encryptedMap = {};
+
+                    // Encrypt for ourselves
+                    let ownPubB64 = this._publicKeyB64;
+                    if (!ownPubB64) {
+                        const ownR = await fetch(`/api/user/${this.userId}/public-key`, {
+                            headers: { 'X-CSRF-TOKEN': this._csrf() },
+                        });
+                        const ownD = await ownR.json();
+                        ownPubB64  = ownD.public_key;
+                    }
+                    if (ownPubB64) {
+                        const ownPubKey = await E2EE.importPublicKey(ownPubB64);
+                        encryptedMap[String(this.userId)] = await E2EE.encryptThreadKeyForUser(threadKey, ownPubKey);
+                    }
+
+                    // Encrypt for partner
+                    if (partnerUserId) {
+                        const partR = await fetch(`/api/user/${partnerUserId}/public-key`, {
+                            headers: { 'X-CSRF-TOKEN': this._csrf() },
+                        });
+                        const partD = await partR.json();
+                        if (partD.public_key) {
+                            const partPubKey = await E2EE.importPublicKey(partD.public_key);
+                            encryptedMap[String(partnerUserId)] = await E2EE.encryptThreadKeyForUser(threadKey, partPubKey);
+                        }
+                    }
+
+                    // Store on server
+                    await fetch(`/api/support/thread/${threadId}/keys`, {
+                        method:  'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': this._csrf(),
+                        },
+                        body: JSON.stringify({ keys: encryptedMap }),
+                    });
+
+                    E2EE.cacheThreadKey(threadId, threadKey);
+                }
+            } catch (err) {
+                console.warn('[E2EE] Thread key init failed', err);
+            }
+        },
+
+        /**
+         * Decrypt all encrypted messages in-place.
+         * @param {Array} messages
+         * @param {number} threadId
+         */
+        async _decryptMessages(messages, threadId) {
+            if (!this._e2eeReady || typeof E2EE === 'undefined') return messages;
+
+            const threadKey = E2EE.getCachedThreadKey(threadId);
+            if (!threadKey) return messages;
+
+            return Promise.all(messages.map(async (msg) => {
+                if (!msg.is_encrypted) return msg;
+                const iv = msg.metadata?.encryption?.iv;
+                if (!iv) return { ...msg, body: '🔒 [Cannot decrypt — missing IV]' };
+
+                try {
+                    const plaintext = await E2EE.decryptMessage(msg.body, iv, threadKey);
+                    return { ...msg, body: plaintext };
+                } catch (_) {
+                    return { ...msg, body: '🔒 [Decryption failed]' };
+                }
+            }));
         },
 
         // ── Helpers ───────────────────────────────────────────────

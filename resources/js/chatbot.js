@@ -52,7 +52,11 @@ window.chatApp = function () {
         // ── Init ─────────────────────────────────────────────────────
         async init() {
             const saved = localStorage.getItem('theme');
-            this.isDark = (saved === 'dark');
+            if (saved) {
+                this.isDark = (saved === 'dark');
+            } else {
+                this.isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            }
             this.applyTheme();
 
             this.sessionToken = this.getCookie('chat_session') || '';
@@ -79,8 +83,12 @@ window.chatApp = function () {
         // ── Theme ────────────────────────────────────────────────────
         applyTheme() {
             const app = document.getElementById('app');
-            if (app) app.classList.toggle('dark', this.isDark);
+            if (app) {
+                app.classList.toggle('dark', this.isDark);
+                app.classList.toggle('light', !this.isDark);
+            }
             document.documentElement.classList.toggle('dark', this.isDark);
+            document.documentElement.classList.toggle('light', !this.isDark);
             localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
         },
         toggleTheme() { this.isDark = !this.isDark; this.applyTheme(); },

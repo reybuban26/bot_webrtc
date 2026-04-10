@@ -9,7 +9,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SupportThread extends Model
 {
-    protected $fillable = ['user_id', 'title'];
+    protected $fillable = ['user_id', 'title', 'encrypted_keys'];
+
+    protected $casts = [
+        'encrypted_keys' => 'array',
+    ];
 
     public function user(): BelongsTo
     {

@@ -96,13 +96,16 @@ Route::prefix('api/call')->name('call.')->middleware(['auth', 'verified'])->grou
 
 // ── Support Chat API (auth required, verified) ────────────────────────────────
 Route::prefix('api/support')->name('support.')->middleware(['auth', 'verified'])->group(function () {
-    Route::get('/threads',                    [SupportController::class, 'threads'])->name('threads');
-    Route::get('/thread',                     [SupportController::class, 'thread'])->name('thread');
-    Route::get('/thread/{threadId}/messages', [SupportController::class, 'messages'])->name('messages');
-    Route::post('/thread/{threadId}/mark-seen', [SupportController::class, 'markAsSeen'])->name('mark-seen');
-    Route::post('/thread/{threadId}/message', [SupportController::class, 'send'])->name('send');
-    Route::post('/thread/{threadId}/meeting', [SupportController::class, 'saveMeeting'])->name('meeting');
-    Route::post('/thread/{threadId}/typing', [SupportController::class, 'typing'])->name('typing');
+    Route::get('/threads',                         [SupportController::class, 'threads'])->name('threads');
+    Route::get('/thread',                          [SupportController::class, 'thread'])->name('thread');
+    Route::get('/thread/{threadId}/messages',      [SupportController::class, 'messages'])->name('messages');
+    Route::post('/thread/{threadId}/mark-seen',    [SupportController::class, 'markAsSeen'])->name('mark-seen');
+    Route::post('/thread/{threadId}/message',      [SupportController::class, 'send'])->name('send');
+    Route::post('/thread/{threadId}/meeting',      [SupportController::class, 'saveMeeting'])->name('meeting');
+    Route::post('/thread/{threadId}/typing',       [SupportController::class, 'typing'])->name('typing');
+    // E2EE key exchange
+    Route::get('/thread/{threadId}/keys',          [SupportController::class, 'getThreadKeys'])->name('thread.keys.get');
+    Route::put('/thread/{threadId}/keys',          [SupportController::class, 'storeThreadKeys'])->name('thread.keys.store');
 });
 
 // ── Profile API (auth required, verified) ─────────────────────────────────────
@@ -111,6 +114,12 @@ Route::prefix('api/profile')->name('profile.')->middleware(['auth', 'verified'])
     Route::put('/',         [ProfileController::class, 'update'])->name('update');
     Route::post('/avatar',  [ProfileController::class, 'uploadAvatar'])->name('avatar.upload');
     Route::delete('/avatar',[ProfileController::class, 'deleteAvatar'])->name('avatar.delete');
+});
+
+// ── E2EE Public Key API (auth required, verified) ─────────────────────────────
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::put('/api/user/public-key',          [ProfileController::class, 'storePublicKey'])->name('user.public-key.store');
+    Route::get('/api/user/{userId}/public-key', [ProfileController::class, 'getPublicKey'])->name('user.public-key.get');
 });
 
 Route::get('/api/voice/status', [CallController::class, 'voiceStatus'])->name('voice.status');

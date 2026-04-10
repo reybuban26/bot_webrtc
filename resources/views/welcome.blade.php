@@ -6,6 +6,7 @@
         <link rel="manifest" href="/manifest.json">
 
         <title>{{ config('app.name', 'Laravel') }}</title>
+        <script src="/js/theme.js"></script>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">

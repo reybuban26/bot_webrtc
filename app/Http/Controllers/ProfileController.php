@@ -81,4 +81,36 @@ class ProfileController extends Controller
 
         return response()->json(['success' => true, 'avatar_url' => null]);
     }
+
+    // ── E2EE Public Key ───────────────────────────────────────────────────────
+
+    /** Store the authenticated user's RSA public key (SPKI, base64-encoded). */
+    public function storePublicKey(Request $request): JsonResponse
+    {
+        $request->validate([
+            'public_key' => 'required|string|max:8192',
+        ]);
+
+        $request->user()->update(['public_key' => $request->input('public_key')]);
+
+        return response()->json(['success' => true]);
+    }
+
+    /** Retrieve another user's RSA public key for key exchange. */
+    public function getPublicKey(Request $request, int $userId): JsonResponse
+    {
+        $target = \App\Models\User::findOrFail($userId);
+
+        // Only allow if the requester is admin or shares a support thread with target.
+        $auth = $request->user();
+        if ($auth->id !== $userId && $auth->role !== 'admin') {
+            $sharedThread = \App\Models\SupportThread::where('user_id', $target->id)->exists()
+                         || \App\Models\SupportThread::where('user_id', $auth->id)->exists();
+            if (!$sharedThread) {
+                return response()->json(['error' => 'Forbidden.'], 403);
+            }
+        }
+
+        return response()->json(['public_key' => $target->public_key]);
+    }
 }

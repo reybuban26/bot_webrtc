@@ -14,10 +14,12 @@ class SupportMessage extends Model
         'type',
         'metadata',
         'is_read',
+        'is_encrypted',
     ];
 
     protected $casts = [
         'metadata'   => 'array',
+        'is_encrypted' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
