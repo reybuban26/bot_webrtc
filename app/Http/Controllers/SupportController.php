@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ChatEnded;
+use App\Events\MessageSeen;
+use App\Events\SystemMessageCreated;
+use App\Events\UserTyping;
 use App\Models\CallRequest;
 use App\Models\SupportMessage;
 use App\Models\SupportThread;
@@ -12,8 +16,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use App\Events\UserTyping;
-use App\Events\MessageSeen;
 
 class SupportController extends Controller
 {
@@ -35,8 +37,10 @@ class SupportController extends Controller
         $thread = SupportThread::forUser($userId);
 
         return response()->json([
-            'thread_id' => $thread->id,
-            'user_id'   => $thread->user_id,
+            'thread_id'         => $thread->id,
+            'user_id'           => $thread->user_id,
+            'chat_status'       => $thread->chat_status,
+            'assigned_admin_id' => $thread->assigned_admin_id,
         ]);
     }
 
@@ -51,6 +55,7 @@ class SupportController extends Controller
 
         $threads = SupportThread::with(['user', 'latestMessage.sender'])
             ->withCount(['unreadMessages'])
+            ->whereHas('messages')   // only show threads that have at least one message
             ->orderByDesc('updated_at')
             ->get()
             ->map(fn ($t) => [
@@ -60,9 +65,11 @@ class SupportController extends Controller
                 'last_message'      => ($t->latestMessage?->is_encrypted)
                                         ? '🔒 Encrypted message'
                                         : ($t->latestMessage?->body ?? null),
-                'last_message_role' => $t->latestMessage?->sender->role ?? null,
+                'last_message_role' => $t->latestMessage?->sender?->role ?? 'system',
                 'unread_count'      => $t->unread_messages_count,
                 'updated_at'        => $t->updated_at?->toISOString(),
+                'chat_status'       => $t->chat_status,
+                'assigned_admin_id' => $t->assigned_admin_id,
             ]);
 
         return response()->json(['threads' => $threads]);
@@ -88,17 +95,12 @@ class SupportController extends Controller
             $metadata = $m->metadata;
 
             // For meeting_notes, verify the recording file still exists on disk.
-            // If it has been deleted, remove recording_url from the payload so the
-            // frontend never renders an audio player pointing to a dead 404 URL.
             if ($m->type === 'meeting_notes' && isset($metadata['recording_url'])) {
                 $localPath = null;
 
                 if (isset($metadata['recording_path'])) {
-                    // New messages: path saved explicitly
                     $localPath = storage_path('app/public/' . $metadata['recording_path']);
                 } else {
-                    // Old messages: derive local path from the public URL
-                    // URL format: https://domain.com/storage/call-recordings/file.webm
                     $urlPath = parse_url($metadata['recording_url'], PHP_URL_PATH) ?? '';
                     if (str_starts_with($urlPath, '/storage/')) {
                         $relative  = substr($urlPath, strlen('/storage/'));
@@ -114,8 +116,8 @@ class SupportController extends Controller
             return [
                 'id'           => $m->id,
                 'sender_id'    => $m->sender_id,
-                'sender'       => $m->sender->name,
-                'role'         => $m->sender->role,
+                'sender'       => $m->sender?->name ?? 'System',
+                'role'         => $m->sender?->role ?? 'system',
                 'body'         => $m->body,
                 'type'         => $m->type,
                 'metadata'     => $metadata,
@@ -146,6 +148,36 @@ class SupportController extends Controller
 
         if (!$request->filled('body') && !$request->hasFile('file')) {
             return response()->json(['error' => 'Message or file is required.'], 422);
+        }
+
+        // ── Session control: inject waiting message when user starts/restarts ──
+        if ($request->user()->role !== 'admin') {
+            $needsWaiting = false;
+
+            if ($thread->chat_status === 'ended') {
+                // Re-open the thread — reset status to waiting
+                $thread->update(['chat_status' => 'waiting', 'assigned_admin_id' => null]);
+                $needsWaiting = true;
+            } elseif ($thread->chat_status === 'waiting') {
+                // First user message on a fresh thread (no non-system messages yet)
+                $hasUserMessages = $thread->messages()
+                    ->whereNotNull('sender_id')
+                    ->exists();
+                $needsWaiting = ! $hasUserMessages;
+            }
+
+            if ($needsWaiting) {
+                $waitingMsg = SupportMessage::createSystem(
+                    $thread->id,
+                    'Stay tuned, connecting you to a support agent…'
+                );
+                broadcast(new SystemMessageCreated(
+                    threadId:  $thread->id,
+                    messageId: $waitingMsg->id,
+                    body:      $waitingMsg->body,
+                    createdAt: $waitingMsg->created_at->toISOString(),
+                ));
+            }
         }
 
         $metadata = null;
@@ -225,7 +257,6 @@ class SupportController extends Controller
             'duration'  => 'nullable|integer',
         ]);
 
-        // ─ Debug: file details before storage ──────────────────────────────────
         $file = $request->file('recording');
         Log::info('[Meeting] File received', [
             'original_name' => $file->getClientOriginalName(),
@@ -239,11 +270,9 @@ class SupportController extends Controller
             'thread_id'     => $threadId,
         ]);
 
-        // Save recording file
         $path = $file->store('call-recordings', 'public');
         $url  = asset('storage/' . $path);
 
-        // ─ Debug: check URL reachability ───────────────────────────────────
         Log::info('[Meeting] File stored', ['path' => $path, 'public_url' => $url]);
         try {
             $headResp = Http::timeout(8)->head($url);
@@ -263,12 +292,10 @@ class SupportController extends Controller
             Log::warning('[Meeting] URL reachability check failed', ['error' => $e->getMessage()]);
         }
 
-        // Transcribe & summarize via Qwen — pass local path so service can read file directly
         $localPath = storage_path('app/public/' . $path);
         $qwen  = app(QwenAiService::class);
         $notes = $qwen->transcribeAndSummarize($url, $request->input('duration', 0), $localPath);
 
-        // Save meeting notes message in thread
         $message = SupportMessage::create([
             'thread_id' => $thread->id,
             'sender_id' => $request->user()->id,
@@ -294,31 +321,88 @@ class SupportController extends Controller
 
     /**
      * Mark all messages in a thread as read.
+     * When admin opens a waiting thread for the first time, atomically claims it
+     * and broadcasts a "You are now chatting with Admin X" system message.
      */
     public function markAsSeen(Request $request, int $threadId): JsonResponse
     {
         $thread = SupportThread::findOrFail($threadId);
         $this->authorizeThread($request->user(), $thread);
 
+        $auth = $request->user();
+
+        // ── Admin first-contact: atomically claim a waiting thread ───────────
+        if ($auth->role === 'admin' && $thread->chat_status === 'waiting') {
+            $updated = SupportThread::where('id', $thread->id)
+                ->where('chat_status', 'waiting')
+                ->update(['chat_status' => 'active', 'assigned_admin_id' => $auth->id]);
+
+            if ($updated) {
+                $firstName = explode(' ', trim($auth->name))[0];
+                $sysMsg = SupportMessage::createSystem(
+                    $thread->id,
+                    "You are now chatting with {$firstName}."
+                );
+                broadcast(new SystemMessageCreated(
+                    threadId:  $thread->id,
+                    messageId: $sysMsg->id,
+                    body:      $sysMsg->body,
+                    createdAt: $sysMsg->created_at->toISOString(),
+                ));
+            }
+        }
+
         $query = $thread->messages()->where('is_read', false);
 
-        if ($request->user()->role === 'admin') {
+        if ($auth->role === 'admin') {
             $query->whereHas('sender', fn($q) => $q->where('role', 'user'));
         } else {
             $query->whereHas('sender', fn($q) => $q->where('role', 'admin'));
         }
 
-        $unreadCount = $query->count(); // ← DAGDAG: i-count muna
+        $unreadCount = $query->count();
 
-        if ($unreadCount > 0) { // ← DAGDAG: broadcast ONLY if may unread
+        if ($unreadCount > 0) {
             $query->update(['is_read' => true]);
 
             broadcast(new MessageSeen(
                 threadId: $thread->id,
-                seenByUserId: $request->user()->id,
-                seenByName: $request->user()->name
+                seenByUserId: $auth->id,
+                seenByName: $auth->name
             ));
         }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Admin ends the current chat session.
+     * Creates a system message, broadcasts ChatEnded, and resets thread status.
+     */
+    public function endChat(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        if ($request->user()->role !== 'admin') {
+            return response()->json(['error' => 'Forbidden.'], 403);
+        }
+
+        $thread->update(['chat_status' => 'ended', 'assigned_admin_id' => null]);
+
+        $sysMsg = SupportMessage::createSystem(
+            $thread->id,
+            'Chat session ended by admin. Feel free to send a new message anytime.'
+        );
+
+        broadcast(new ChatEnded(
+            threadId:  $thread->id,
+            messageId: $sysMsg->id,
+            body:      $sysMsg->body,
+            createdAt: $sysMsg->created_at->toISOString(),
+        ));
+
+        $thread->touch();
 
         return response()->json(['success' => true]);
     }
@@ -380,7 +464,7 @@ class SupportController extends Controller
         $this->authorizeThread($request->user(), $thread);
 
         return response()->json([
-            'thread_id'     => $thread->id,
+            'thread_id'      => $thread->id,
             'encrypted_keys' => $thread->encrypted_keys ?? [],
         ]);
     }

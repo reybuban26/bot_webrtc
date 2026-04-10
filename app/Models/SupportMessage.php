@@ -18,10 +18,10 @@ class SupportMessage extends Model
     ];
 
     protected $casts = [
-        'metadata'   => 'array',
+        'metadata'     => 'array',
         'is_encrypted' => 'boolean',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'created_at'   => 'datetime',
+        'updated_at'   => 'datetime',
     ];
 
     public function thread(): BelongsTo
@@ -32,5 +32,21 @@ class SupportMessage extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    /**
+     * Create a system-generated message (no human sender).
+     * System messages are always marked as read and never encrypted.
+     */
+    public static function createSystem(int $threadId, string $body): self
+    {
+        return self::create([
+            'thread_id'    => $threadId,
+            'sender_id'    => null,
+            'body'         => $body,
+            'type'         => 'system',
+            'is_read'      => true,
+            'is_encrypted' => false,
+        ]);
     }
 }

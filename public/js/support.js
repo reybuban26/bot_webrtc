@@ -31,6 +31,10 @@ window.supportApp = function () {
         _partnerOnlineTimer: null,
         messagesSeen: false, // naging blue na ba ang checks
 
+        // ── Session Control State ─────────────────────────────────
+        chatStatus:      'waiting',   // 'waiting' | 'active' | 'ended'
+        assignedAdminId: null,
+
         // Admin thread list
         threads:        [],
         activeUserId:   null,
@@ -53,7 +57,7 @@ window.supportApp = function () {
                     window.dispatchEvent(new CustomEvent('support-unread', { detail: 0 }));
                     setTimeout(() => this._scrollToBottom(), 50);
 
-                    // ✅ DAGDAG — markAsSeen agad kapag nabuksan ang panel
+                    // markAsSeen agad kapag nabuksan ang panel
                     if (this.threadId && this.messages.length > 0) {
                         this.markAsSeen(this.threadId);
                     }
@@ -159,9 +163,6 @@ window.supportApp = function () {
         },
 
         // ── User: open own thread ──────────────────────────────────
-        // Load thread data silently on init so the panel is ready instantly
-        // when the user clicks the Support button. Do NOT set open=true here
-        // — the panel must only appear on explicit user action.
         async openMyThread() {
             await this.openThread(null);
         },
@@ -170,8 +171,10 @@ window.supportApp = function () {
             this._clearPoll();
             this.messages = [];
             this.lastTs   = null;
-            this.messagesSeen = false; // ← DAGDAG
-            this.partnerOnline = false; // ← DAGDAG
+            this.messagesSeen  = false;
+            this.partnerOnline = false;
+            this.chatStatus    = 'waiting';
+            this.assignedAdminId = null;
 
             const url = userId
                 ? `/api/support/thread?user_id=${userId}`
@@ -180,14 +183,12 @@ window.supportApp = function () {
             try {
                 const r  = await fetch(url, { headers: { 'X-CSRF-TOKEN': this._csrf() } });
                 const d  = await r.json();
-                this.threadId = d.thread_id;
+                this.threadId       = d.thread_id;
+                this.chatStatus     = d.chat_status || 'waiting';
+                this.assignedAdminId = d.assigned_admin_id || null;
 
                 // E2EE: ensure thread has an AES key.
-                // For user opening own thread: partner is any admin (userId 1 or resolved later).
-                // For admin opening user's thread: partner is the user.
-                const partnerUserId = userId
-                    ? parseInt(userId)           // admin → user
-                    : null;                       // user → will be resolved async when admin connects
+                const partnerUserId = userId ? parseInt(userId) : null;
                 await this._initThreadKey(d.thread_id, partnerUserId);
 
                 // Load initial messages
@@ -207,46 +208,80 @@ window.supportApp = function () {
         },
 
         _subscribeReverb(threadId) {
-        if (this._reverbChannel) {
-            window.Echo?.leave(`support.thread.${this._reverbChannel}`);
-        }
-        this._reverbChannel = threadId;
+            if (this._reverbChannel) {
+                window.Echo?.leave(`support.thread.${this._reverbChannel}`);
+            }
+            this._reverbChannel = threadId;
 
-        window.Echo?.channel(`support.thread.${threadId}`)
-            .listen('.user.typing', (e) => {
-                if (e.userId === this.userId) return;
+            window.Echo?.channel(`support.thread.${threadId}`)
+                .listen('.user.typing', (e) => {
+                    if (e.userId === this.userId) return;
 
-                this._setPartnerOnline();
+                    this._setPartnerOnline();
 
-                if (e.isTyping) {
-                    this.typingUsers[e.userId] = e.userName;
+                    if (e.isTyping) {
+                        this.typingUsers[e.userId] = e.userName;
 
-                    // ✅ DAGDAG — auto-clear after 3 seconds kung walang bagong typing event
-                    if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
-                    this._typingClearTimer = setTimeout(() => {
-                        delete this.typingUsers[e.userId];
-                    }, 3000);
+                        if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
+                        this._typingClearTimer = setTimeout(() => {
+                            delete this.typingUsers[e.userId];
+                        }, 3000);
 
-                } else {
-                    // ✅ Delayed clear kapag nag-stop ng typing
-                    if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
-                    this._typingClearTimer = setTimeout(() => {
-                        delete this.typingUsers[e.userId];
-                    }, 1500); // 1.5 seconds delay bago mawala
-                }
-            })
-            .listen('.message.seen', (e) => {
-                if (e.seenByUserId !== this.userId) {
-                    this.messagesSeen = true; // ← blue agad lahat ng checks
-                    this.seenBy = e.seenByName;
-                    setTimeout(() => { this.seenBy = ''; }, 10000);
-                }
-            });
+                    } else {
+                        if (this._typingClearTimer) clearTimeout(this._typingClearTimer);
+                        this._typingClearTimer = setTimeout(() => {
+                            delete this.typingUsers[e.userId];
+                        }, 1500);
+                    }
+                })
+                .listen('.message.seen', (e) => {
+                    if (e.seenByUserId !== this.userId) {
+                        this.messagesSeen = true;
+                        this.seenBy = e.seenByName;
+                        setTimeout(() => { this.seenBy = ''; }, 10000);
+                    }
+                })
+                .listen('.system.message', (e) => {
+                    // Dedup: don't push if we already have this message
+                    if (this.messages.some(m => m.id === e.messageId)) return;
+
+                    this.messages.push({
+                        id:           e.messageId,
+                        sender_id:    null,
+                        sender:       'System',
+                        role:         'system',
+                        type:         'system',
+                        body:         e.body,
+                        metadata:     null,
+                        is_encrypted: false,
+                        created_at:   e.createdAt,
+                    });
+                    this._scrollToBottom();
+                })
+                .listen('.chat.ended', (e) => {
+                    // Update local chat status
+                    this.chatStatus = 'ended';
+
+                    // Dedup: don't push if already present
+                    if (this.messages.some(m => m.id === e.messageId)) return;
+
+                    this.messages.push({
+                        id:           e.messageId,
+                        sender_id:    null,
+                        sender:       'System',
+                        role:         'system',
+                        type:         'system',
+                        body:         e.body,
+                        metadata:     null,
+                        is_encrypted: false,
+                        created_at:   e.createdAt,
+                    });
+                    this._scrollToBottom();
+                });
         },
 
         _setPartnerOnline() {
             this.partnerOnline = true;
-            // I-reset ang online status after 30 seconds ng walang activity
             if (this._partnerOnlineTimer) clearTimeout(this._partnerOnlineTimer);
             this._partnerOnlineTimer = setTimeout(() => {
                 this.partnerOnline = false;
@@ -272,6 +307,12 @@ window.supportApp = function () {
             return 'Several people are typing…';
         },
 
+        /** Dynamic subtitle label shown under the header name (user view). */
+        get chatStatusLabel() {
+            if (this.chatStatus === 'active') return '🟢 Connected';
+            if (this.chatStatus === 'ended')  return 'Chat ended';
+            return 'We usually reply within minutes';
+        },
 
         _clearPoll() {
             if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
@@ -292,17 +333,26 @@ window.supportApp = function () {
                     // Decrypt any E2EE messages before rendering
                     const decrypted = await this._decryptMessages(d.messages, this.threadId);
 
-                    this.messages = incremental
-                        ? [...this.messages, ...decrypted]
-                        : decrypted;
+                    if (incremental) {
+                        // Deduplicate: skip messages that were already pushed via WebSocket
+                        const existingIds = new Set(this.messages.map(m => m.id));
+                        const newMsgs = decrypted.filter(m => !existingIds.has(m.id));
+
+                        if (newMsgs.length > 0) {
+                            this.messages = [...this.messages, ...newMsgs];
+                            this._scrollToBottom();
+                        }
+                    } else {
+                        this.messages = decrypted;
+                        this._scrollToBottom();
+                    }
 
                     this.lastTs = d.messages[d.messages.length - 1].created_at;
-                    this._scrollToBottom();
 
-                    // ✅ PALITAN — markAsSeen AGAD kapag bukas ang panel, hindi lang count
+                    // markAsSeen when panel is open and new messages arrived
                     if (this.open && d.messages.length > 0) {
                         await this.markAsSeen(this.threadId);
-                    } else {
+                    } else if (!incremental || d.messages.length > 0) {
                         this.unreadCount += d.messages.length;
                         window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
                     }
@@ -356,6 +406,22 @@ window.supportApp = function () {
             }
         },
 
+        // ── End Chat (admin only) ─────────────────────────────────
+        async endChat() {
+            if (!this.threadId || this.userRole !== 'admin') return;
+            if (!confirm('End this support session? The user will be notified.')) return;
+
+            try {
+                await fetch(`/api/support/thread/${this.threadId}/end-chat`, {
+                    method:  'POST',
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                });
+                this.chatStatus = 'ended';
+            } catch (e) {
+                console.error('[Support] endChat failed', e);
+            }
+        },
+
         handleSupportFile(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -380,9 +446,7 @@ window.supportApp = function () {
         // ── Trigger call (from within support chat) ───────────────
         triggerCall() {
             if (this.userRole === 'user') {
-                // User → Admin call: open the WebRTC modal and call admin
                 window.dispatchEvent(new CustomEvent('open-rtc'));
-                // Slight delay to let Alpine render the modal, then auto-call
                 setTimeout(() => {
                     const webrtcEl = document.querySelector('[x-data*="webrtcApp"]')?._x_dataStack?.[0];
                     if (webrtcEl && typeof webrtcEl.callAdmin === 'function') {
@@ -390,7 +454,6 @@ window.supportApp = function () {
                     }
                 }, 100);
             } else if (this.userRole === 'admin' && this.activeUserId) {
-                // Admin → User call
                 window.dispatchEvent(new CustomEvent('open-rtc'));
                 setTimeout(() => {
                     const webrtcEl = document.querySelector('[x-data*="webrtcApp"]')?._x_dataStack?.[0];
@@ -403,17 +466,12 @@ window.supportApp = function () {
 
         // ── E2EE Helpers ──────────────────────────────────────────
 
-        /**
-         * On startup: load or generate the user's RSA key pair, then
-         * register the public key with the server.
-         */
         async _initE2EE() {
-            if (typeof E2EE === 'undefined') return; // crypto.js not loaded
+            if (typeof E2EE === 'undefined') return;
             try {
                 this._privateKey = await E2EE.loadPrivateKey();
 
                 if (!this._privateKey) {
-                    // First time on this device — generate a fresh key pair
                     const { publicKey, privateKey } = await E2EE.generateKeyPair();
                     await E2EE.savePrivateKey(privateKey);
                     this._privateKey = privateKey;
@@ -440,16 +498,8 @@ window.supportApp = function () {
             });
         },
 
-        /**
-         * Ensure the thread has an AES key we can use.
-         * If no key exists yet, we generate one and distribute it to both parties.
-         * @param {number} threadId
-         * @param {number} partnerUserId  — the other participant's user ID
-         */
         async _initThreadKey(threadId, partnerUserId) {
             if (!this._e2eeReady || typeof E2EE === 'undefined') return;
-
-            // Check cache first
             if (E2EE.getCachedThreadKey(threadId)) return;
 
             try {
@@ -461,12 +511,13 @@ window.supportApp = function () {
                 const myWrappedKey = keys[String(this.userId)];
 
                 if (myWrappedKey) {
-                    // Decrypt our copy of the thread key
+                    // ✅ We have our wrapped copy — decrypt and cache it
                     const threadKey = await E2EE.decryptThreadKey(myWrappedKey, this._privateKey);
                     E2EE.cacheThreadKey(threadId, threadKey);
-                } else {
-                    // No key yet — we are the first party; generate and distribute
-                    const threadKey   = await E2EE.generateThreadKey();
+
+                } else if (Object.keys(keys).length === 0) {
+                    // ✅ No keys exist at all — we're the first party, generate a fresh thread key
+                    const threadKey    = await E2EE.generateThreadKey();
                     const encryptedMap = {};
 
                     // Encrypt for ourselves
@@ -483,7 +534,7 @@ window.supportApp = function () {
                         encryptedMap[String(this.userId)] = await E2EE.encryptThreadKeyForUser(threadKey, ownPubKey);
                     }
 
-                    // Encrypt for partner
+                    // Encrypt for explicitly known partner (admin side)
                     if (partnerUserId) {
                         const partR = await fetch(`/api/user/${partnerUserId}/public-key`, {
                             headers: { 'X-CSRF-TOKEN': this._csrf() },
@@ -495,7 +546,26 @@ window.supportApp = function () {
                         }
                     }
 
-                    // Store on server
+                    // User side (no explicit partner yet): pre-encrypt for the default admin
+                    // so the admin can decrypt messages without generating a conflicting key
+                    if (!partnerUserId) {
+                        const adminId = parseInt(
+                            document.querySelector('meta[name="support-admin-id"]')?.content || '0'
+                        );
+                        if (adminId && adminId !== this.userId) {
+                            try {
+                                const adminR = await fetch(`/api/user/${adminId}/public-key`, {
+                                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                                });
+                                const adminD = await adminR.json();
+                                if (adminD.public_key) {
+                                    const adminPubKey = await E2EE.importPublicKey(adminD.public_key);
+                                    encryptedMap[String(adminId)] = await E2EE.encryptThreadKeyForUser(threadKey, adminPubKey);
+                                }
+                            } catch (_) { /* admin may not have generated their key pair yet — skip */ }
+                        }
+                    }
+
                     await fetch(`/api/support/thread/${threadId}/keys`, {
                         method:  'PUT',
                         headers: {
@@ -506,33 +576,37 @@ window.supportApp = function () {
                     });
 
                     E2EE.cacheThreadKey(threadId, threadKey);
+
                 }
+                // ⚠️ Keys exist but no slot for this user (e.g. multi-admin scenario):
+                // Don't generate a conflicting new key — leave threadKey uncached.
+                // Encrypted messages will show "🔒 Encrypted" and new outgoing messages
+                // will be sent as plaintext until the key exchange completes properly.
+
             } catch (err) {
                 console.warn('[E2EE] Thread key init failed', err);
             }
         },
 
-        /**
-         * Decrypt all encrypted messages in-place.
-         * @param {Array} messages
-         * @param {number} threadId
-         */
         async _decryptMessages(messages, threadId) {
             if (!this._e2eeReady || typeof E2EE === 'undefined') return messages;
 
             const threadKey = E2EE.getCachedThreadKey(threadId);
-            if (!threadKey) return messages;
 
             return Promise.all(messages.map(async (msg) => {
                 if (!msg.is_encrypted) return msg;
+
+                // No thread key cached — show a clean placeholder instead of raw ciphertext
+                if (!threadKey) return { ...msg, body: '🔒 Encrypted' };
+
                 const iv = msg.metadata?.encryption?.iv;
-                if (!iv) return { ...msg, body: '🔒 [Cannot decrypt — missing IV]' };
+                if (!iv) return { ...msg, body: '🔒 Encrypted' };
 
                 try {
                     const plaintext = await E2EE.decryptMessage(msg.body, iv, threadKey);
                     return { ...msg, body: plaintext };
                 } catch (_) {
-                    return { ...msg, body: '🔒 [Decryption failed]' };
+                    return { ...msg, body: '🔒 Encrypted' };
                 }
             }));
         },
@@ -544,7 +618,7 @@ window.supportApp = function () {
 
         _scrollToBottom() {
             const el = document.getElementById('support-messages');
-            if (el) el.scrollTop = el.scrollHeight; // immediate
+            if (el) el.scrollTop = el.scrollHeight;
             this.$nextTick(() => {
                 if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
             });
@@ -556,12 +630,13 @@ window.supportApp = function () {
         },
 
         isOwnMessage(msg) {
+            // System messages are never "own"
+            if (msg.type === 'system' || msg.sender_id === null) return false;
             return msg.sender_id === this.userId;
         },
 
         /**
          * Convert Markdown meeting-notes to sanitised HTML for x-html rendering.
-         * Handles: ## headings, **bold**, * bullets, blank-line paragraphs.
          */
         renderNotes(md) {
             if (!md) return '';
@@ -573,7 +648,6 @@ window.supportApp = function () {
             lines.forEach(raw => {
                 const line = raw.trimEnd();
 
-                // --- H2 heading:  ## Title
                 if (/^##\s+/.test(line)) {
                     if (inList) { html += '</ul>'; inList = false; }
                     const text = this._mdInline(line.replace(/^##\s+/, ''));
@@ -581,7 +655,6 @@ window.supportApp = function () {
                     return;
                 }
 
-                // --- H3 heading:  ### Title
                 if (/^###\s+/.test(line)) {
                     if (inList) { html += '</ul>'; inList = false; }
                     const text = this._mdInline(line.replace(/^###\s+/, ''));
@@ -589,7 +662,6 @@ window.supportApp = function () {
                     return;
                 }
 
-                // --- Bullet: * item or - item
                 if (/^[\*\-]\s+/.test(line)) {
                     if (!inList) { html += '<ul class="mn-list">'; inList = true; }
                     const text = this._mdInline(line.replace(/^[\*\-]\s+/, ''));
@@ -597,16 +669,13 @@ window.supportApp = function () {
                     return;
                 }
 
-                // --- Close list before blank or normal line
                 if (inList) { html += '</ul>'; inList = false; }
 
-                // --- Blank line → paragraph break
                 if (line === '') {
                     html += '<div class="mn-gap"></div>';
                     return;
                 }
 
-                // --- Normal paragraph line
                 html += `<p class="mn-para">${this._mdInline(line)}</p>`;
             });
 
@@ -614,7 +683,6 @@ window.supportApp = function () {
             return html;
         },
 
-        /** Inline Markdown: **bold**, *italic*, backtick `code` */
         _mdInline(text) {
             return text
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

@@ -12,6 +12,7 @@
 <meta name="is-authenticated" content="{{ auth()->check() ? 'true' : 'false' }}"/>
 <meta name="login-url" content="{{ route('login') }}"/>
 <meta name="user-role" content="{{ auth()->check() ? auth()->user()->role : 'user' }}"/>
+<meta name="support-admin-id" content="{{ \App\Models\User::where('role', 'admin')->first()?->id ?? '' }}"/>
 <title>AI Chatbot — Powered by Maxx</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
@@ -986,7 +987,7 @@
       <template x-if="userRole === 'user'">
         <div>
           <div class="sp-header-name">Support Chat</div>
-          <div class="sp-header-sub">We usually reply within minutes</div>
+          <div class="sp-header-sub" x-text="chatStatusLabel"></div>
         </div>
       </template>
       <template x-if="userRole === 'admin' && !threadId">
@@ -995,7 +996,9 @@
       <template x-if="userRole === 'admin' && threadId">
         <div>
           <div class="sp-header-name" x-text="activeUserName || 'User'"></div>
-          <div class="sp-header-sub">Support conversation</div>
+          <div class="sp-header-sub"
+               :style="chatStatus === 'active' ? 'color:#22c55e' : (chatStatus === 'ended' ? 'color:#ef4444' : '')"
+               x-text="chatStatus === 'active' ? '🟢 Connected' : (chatStatus === 'ended' ? 'Session ended' : '⏳ Waiting')"></div>
         </div>
       </template>
     </div>
@@ -1005,6 +1008,16 @@
       <button class="sp-call-btn" @click="triggerCall()" title="Start call">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8C8 13.6 10.4 16 13.2 17.4l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
         Call
+      </button>
+    </template>
+
+    <!-- 🚫 End Chat button (admin only, when thread is active/waiting) -->
+    <template x-if="userRole === 'admin' && threadId && chatStatus !== 'ended'">
+      <button @click="endChat()" title="End this chat session"
+              style="background:#ef4444;border:none;border-radius:20px;padding:7px 12px;cursor:pointer;color:#fff;display:flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;transition:opacity .15s;flex-shrink:0;opacity:.9"
+              onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.9">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        End
       </button>
     </template>
 
@@ -1062,8 +1075,8 @@
 
         <template x-for="msg in messages" :key="msg.id">
           <div>
-            <!-- System chip (call_started / call_ended) -->
-            <template x-if="msg.type === 'call_started' || msg.type === 'call_ended'">
+            <!-- System chip (call_started / call_ended / system) -->
+            <template x-if="msg.type === 'call_started' || msg.type === 'call_ended' || msg.type === 'system'">
               <div style="display:flex;justify-content:center;margin:8px 0">
                 <div class="sp-bubble system" x-text="msg.body"></div>
               </div>
@@ -1233,7 +1246,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/crypto.js') }}?v=1"></script>
-<script src="{{ asset('js/support.js') }}?v=19"></script>
+<script src="{{ asset('js/support.js') }}?v=21"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

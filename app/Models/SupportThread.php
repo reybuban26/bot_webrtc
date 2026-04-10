@@ -9,7 +9,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SupportThread extends Model
 {
-    protected $fillable = ['user_id', 'title', 'encrypted_keys'];
+    protected $fillable = [
+        'user_id',
+        'title',
+        'encrypted_keys',
+        'chat_status',
+        'assigned_admin_id',
+    ];
 
     protected $casts = [
         'encrypted_keys' => 'array',
@@ -18,6 +24,11 @@ class SupportThread extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function assignedAdmin(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_admin_id');
     }
 
     public function messages(): HasMany
@@ -44,7 +55,15 @@ class SupportThread extends Model
     {
         return self::firstOrCreate(
             ['user_id' => $userId],
-            ['title' => 'Support']
+            ['title' => 'Support', 'chat_status' => 'waiting']
         );
+    }
+
+    /**
+     * Pick the first available admin user for assignment.
+     */
+    public static function nextAvailableAdmin(): ?User
+    {
+        return User::where('role', 'admin')->first();
     }
 }
