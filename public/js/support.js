@@ -362,7 +362,8 @@ window.supportApp = function () {
                     // markAsSeen when panel is open and new messages arrived
                     if (this.open && d.messages.length > 0) {
                         await this.markAsSeen(this.threadId);
-                    } else if (!incremental || d.messages.length > 0) {
+                    } else if (incremental && d.messages.length > 0) {
+                        // Only count newly arrived messages (polling), not the initial load
                         this.unreadCount += d.messages.length;
                         window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
                     }
