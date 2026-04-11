@@ -20,8 +20,9 @@ use Illuminate\Support\Facades\Log;
 class SupportController extends Controller
 {
     /**
-     * Get or create the support thread for the authenticated user.
-     * For admins: pass ?user_id=x to open a specific user's thread.
+     * Find the support thread for the authenticated user (no auto-create).
+     * Returns thread_id: null if no thread exists yet.
+     * For admins: pass ?user_id=x to look up a specific user's thread.
      */
     public function thread(Request $request): JsonResponse
     {
@@ -30,6 +31,35 @@ class SupportController extends Controller
         if ($auth->role === 'admin') {
             $request->validate(['user_id' => 'required|integer|exists:users,id']);
             $userId = (int) $request->query('user_id');
+        } else {
+            $userId = $auth->id;
+        }
+
+        $thread = SupportThread::where('user_id', $userId)->first();
+
+        if (! $thread) {
+            return response()->json(['thread_id' => null]);
+        }
+
+        return response()->json([
+            'thread_id'         => $thread->id,
+            'user_id'           => $thread->user_id,
+            'chat_status'       => $thread->chat_status,
+            'assigned_admin_id' => $thread->assigned_admin_id,
+        ]);
+    }
+
+    /**
+     * Create (or return existing) support thread — called before the first send.
+     * For admins: pass user_id in the body to open a specific user's thread.
+     */
+    public function createThread(Request $request): JsonResponse
+    {
+        $auth = $request->user();
+
+        if ($auth->role === 'admin') {
+            $request->validate(['user_id' => 'required|integer|exists:users,id']);
+            $userId = (int) $request->input('user_id');
         } else {
             $userId = $auth->id;
         }

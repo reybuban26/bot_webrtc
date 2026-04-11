@@ -98,6 +98,7 @@ Route::prefix('api/call')->name('call.')->middleware(['auth', 'verified'])->grou
 Route::prefix('api/support')->name('support.')->middleware(['auth', 'verified'])->group(function () {
     Route::get('/threads',                         [SupportController::class, 'threads'])->name('threads');
     Route::get('/thread',                          [SupportController::class, 'thread'])->name('thread');
+    Route::post('/thread',                         [SupportController::class, 'createThread'])->name('thread.create');
     Route::get('/thread/{threadId}/messages',      [SupportController::class, 'messages'])->name('messages');
     Route::post('/thread/{threadId}/mark-seen',    [SupportController::class, 'markAsSeen'])->name('mark-seen');
     Route::post('/thread/{threadId}/message',      [SupportController::class, 'send'])->name('send');

@@ -124,7 +124,8 @@ class SupportThreadResource extends Resource
             ->groupedBulkActions([
                 \Filament\Actions\DeleteBulkAction::make(),
             ])
-            ->defaultSort('updated_at', 'desc');
+            ->defaultSort('updated_at', 'desc')
+            ->modifyQueryUsing(fn ($query) => $query->whereHas('messages'));
     }
 
     public static function getRelations(): array

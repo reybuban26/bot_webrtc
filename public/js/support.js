@@ -188,6 +188,13 @@ window.supportApp = function () {
             try {
                 const r  = await fetch(url, { headers: { 'X-CSRF-TOKEN': this._csrf() } });
                 const d  = await r.json();
+
+                // No thread yet — wait for user's first message to create it
+                if (! d.thread_id) {
+                    this.threadId = null;
+                    return;
+                }
+
                 this.threadId       = d.thread_id;
                 this.chatStatus     = d.chat_status || 'waiting';
                 this.assignedAdminId = d.assigned_admin_id || null;
@@ -203,6 +210,34 @@ window.supportApp = function () {
                 this._subscribeReverb(d.thread_id);
             } catch (e) {
                 console.error('[Support] openThread failed', e.message);
+            }
+        },
+
+        /**
+         * Lazily create the thread on first send (user side only).
+         * Returns true if thread is ready, false on failure.
+         */
+        async _ensureThread() {
+            if (this.threadId) return true;
+            try {
+                const r = await fetch('/api/support/thread', {
+                    method:  'POST',
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                });
+                const d = await r.json();
+                if (! d.thread_id) return false;
+
+                this.threadId        = d.thread_id;
+                this.chatStatus      = d.chat_status || 'waiting';
+                this.assignedAdminId = d.assigned_admin_id || null;
+
+                await this._initThreadKey(d.thread_id, null);
+                this._startPoll();
+                this._subscribeReverb(d.thread_id);
+                return true;
+            } catch (e) {
+                console.error('[Support] Thread creation failed', e.message);
+                return false;
             }
         },
 
@@ -376,7 +411,10 @@ window.supportApp = function () {
         // ── Send message ──────────────────────────────────────────
         async sendMessage() {
             const body = this.inputText.trim();
-            if ((!body && !this.stagedFile) || this.sending || !this.threadId) return;
+            if ((!body && !this.stagedFile) || this.sending) return;
+
+            // Create thread on first send if it doesn't exist yet
+            if (!this.threadId && !await this._ensureThread()) return;
 
             this._broadcastTyping(false);
 
