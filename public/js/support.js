@@ -203,6 +203,19 @@ window.supportApp = function () {
                 const partnerUserId = userId ? parseInt(userId) : null;
                 await this._initThreadKey(d.thread_id, partnerUserId);
 
+                // Delayed re-run to handle the race where partner generates their
+                // keypair right after our initial _initThreadKey ran without their slot.
+                const _tid = d.thread_id;
+                setTimeout(async () => {
+                    if (this.threadId !== _tid) return; // Thread changed
+                    const hadKey = !!E2EE.getCachedThreadKey(_tid);
+                    await this._initThreadKey(_tid, partnerUserId);
+                    // If we just acquired the key for the first time, refresh messages
+                    if (!hadKey && E2EE.getCachedThreadKey(_tid)) {
+                        await this.fetchMessages(false);
+                    }
+                }, 15000);
+
                 // Load initial messages
                 await this.fetchMessages(false);
                 this._startPoll();
@@ -373,6 +386,11 @@ window.supportApp = function () {
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
                 });
                 const d = await r.json();
+
+                // Sync chat_status so the End Chat button visibility stays accurate
+                if (d.chat_status && d.chat_status !== this.chatStatus) {
+                    this.chatStatus = d.chat_status;
+                }
 
                 if (d.messages?.length) {
                     // Decrypt any E2EE messages before rendering
@@ -547,9 +565,8 @@ window.supportApp = function () {
             });
         },
 
-        async _initThreadKey(threadId, partnerUserId) {
+        async _initThreadKey(threadId, partnerUserId, _retryCount = 0) {
             if (!this._e2eeReady || typeof E2EE === 'undefined') return;
-            if (E2EE.getCachedThreadKey(threadId)) return;
 
             try {
                 const r = await fetch(`/api/support/thread/${threadId}/keys`, {
@@ -563,6 +580,23 @@ window.supportApp = function () {
                     // ✅ We have our wrapped copy — decrypt and cache it
                     const threadKey = await E2EE.decryptThreadKey(myWrappedKey, this._privateKey);
                     E2EE.cacheThreadKey(threadId, threadKey);
+
+                    // 🔄 If known partner has no slot, add them now using our thread key.
+                    // This handles the case where admin opens the thread before their
+                    // public key was available when the user first set up the thread key.
+                    if (partnerUserId && !keys[String(partnerUserId)]) {
+                        await this._addPartySlot(threadId, partnerUserId, threadKey, keys);
+                    }
+
+                    // User side: also ensure the default admin has a slot
+                    if (!partnerUserId) {
+                        const adminId = parseInt(
+                            document.querySelector('meta[name="support-admin-id"]')?.content || '0'
+                        );
+                        if (adminId && adminId !== this.userId && !keys[String(adminId)]) {
+                            await this._addPartySlot(threadId, adminId, threadKey, keys);
+                        }
+                    }
 
                 } else if (Object.keys(keys).length === 0) {
                     // ✅ No keys exist at all — we're the first party, generate a fresh thread key
@@ -596,7 +630,6 @@ window.supportApp = function () {
                     }
 
                     // User side (no explicit partner yet): pre-encrypt for the default admin
-                    // so the admin can decrypt messages without generating a conflicting key
                     if (!partnerUserId) {
                         const adminId = parseInt(
                             document.querySelector('meta[name="support-admin-id"]')?.content || '0'
@@ -626,14 +659,53 @@ window.supportApp = function () {
 
                     E2EE.cacheThreadKey(threadId, threadKey);
 
+                } else {
+                    // ⚠️ Keys exist but no slot for us yet.
+                    // The user who holds the key will add our slot once they open their panel.
+                    // Retry a few times so we can decrypt as soon as it becomes available.
+                    if (_retryCount < 6) {
+                        setTimeout(async () => {
+                            await this._initThreadKey(threadId, partnerUserId, _retryCount + 1);
+
+                            // If we now have the key, do a full message refresh to decrypt
+                            if (E2EE.getCachedThreadKey(threadId)) {
+                                await this.fetchMessages(false);
+                            }
+                        }, 5000);
+                    }
                 }
-                // ⚠️ Keys exist but no slot for this user (e.g. multi-admin scenario):
-                // Don't generate a conflicting new key — leave threadKey uncached.
-                // Encrypted messages will show "🔒 Encrypted" and new outgoing messages
-                // will be sent as plaintext until the key exchange completes properly.
 
             } catch (err) {
                 console.warn('[E2EE] Thread key init failed', err);
+            }
+        },
+
+        /**
+         * Add a key slot for a party that was missing from encrypted_keys.
+         * The caller must already hold the plaintext threadKey.
+         */
+        async _addPartySlot(threadId, partyUserId, threadKey, existingKeys) {
+            try {
+                const r = await fetch(`/api/user/${partyUserId}/public-key`, {
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                });
+                const d = await r.json();
+                if (!d.public_key) return; // Party hasn't generated their keypair yet
+
+                const pubKey     = await E2EE.importPublicKey(d.public_key);
+                const wrappedKey = await E2EE.encryptThreadKeyForUser(threadKey, pubKey);
+
+                const updatedKeys = { ...existingKeys, [String(partyUserId)]: wrappedKey };
+                await fetch(`/api/support/thread/${threadId}/keys`, {
+                    method:  'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ keys: updatedKeys }),
+                });
+            } catch (err) {
+                console.warn('[E2EE] Failed to add key slot for user', partyUserId, err);
             }
         },
 

@@ -1246,7 +1246,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/crypto.js') }}?v=1"></script>
-<script src="{{ asset('js/support.js') }}?v=23"></script>
+<script src="{{ asset('js/support.js') }}?v=25"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

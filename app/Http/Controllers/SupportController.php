@@ -156,7 +156,10 @@ class SupportController extends Controller
             ];
         });
 
-        return response()->json(['messages' => $messages]);
+        return response()->json([
+            'messages'    => $messages,
+            'chat_status' => $thread->chat_status,
+        ]);
     }
 
     /**
