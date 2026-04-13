@@ -56,6 +56,7 @@ class SupportController extends Controller
     /**
      * Create (or return existing) support thread — called before the first send.
      * For admins: pass user_id in the body to open a specific user's thread.
+     * If thread is newly created, send an AI welcome message.
      */
     public function createThread(Request $request): JsonResponse
     {
@@ -68,7 +69,24 @@ class SupportController extends Controller
             $userId = $auth->id;
         }
 
+        // Check if thread already exists before creating
+        $threadExists = SupportThread::where('user_id', $userId)->exists();
+
         $thread = SupportThread::forUser($userId);
+
+        // If thread was just created (no previous messages), send AI welcome message
+        if (!$threadExists && $thread->messages()->doesntExist()) {
+            $welcomeMessage = SupportMessage::createSystem(
+                $thread->id,
+                '🤖 AI Assistant is here to help. What can I assist you with?'
+            );
+            broadcast(new SystemMessageCreated(
+                threadId:  $thread->id,
+                messageId: $welcomeMessage->id,
+                body:      $welcomeMessage->body,
+                createdAt: $welcomeMessage->created_at->toISOString(),
+            ));
+        }
 
         return response()->json([
             'thread_id'         => $thread->id,
@@ -189,34 +207,21 @@ class SupportController extends Controller
             return response()->json(['error' => 'Message or file is required.'], 422);
         }
 
-        // ── Session control: inject waiting message when user starts/restarts ──
-        if ($request->user()->role !== 'admin') {
-            $needsWaiting = false;
+        // ── Session control: re-open ended thread ──
+        if ($request->user()->role !== 'admin' && $thread->chat_status === 'ended') {
+            // Re-open the thread — reset status to waiting and send new welcome message
+            $thread->update(['chat_status' => 'waiting', 'assigned_admin_id' => null, 'requires_escalation' => false, 'queue_position' => null]);
 
-            if ($thread->chat_status === 'ended') {
-                // Re-open the thread — reset status to waiting
-                $thread->update(['chat_status' => 'waiting', 'assigned_admin_id' => null]);
-                $needsWaiting = true;
-            } elseif ($thread->chat_status === 'waiting') {
-                // First user message on a fresh thread (no non-system messages yet)
-                $hasUserMessages = $thread->messages()
-                    ->whereNotNull('sender_id')
-                    ->exists();
-                $needsWaiting = ! $hasUserMessages;
-            }
-
-            if ($needsWaiting) {
-                $waitingMsg = SupportMessage::createSystem(
-                    $thread->id,
-                    '🤖 AI Assistant is here to help. What can I assist you with?'
-                );
-                broadcast(new SystemMessageCreated(
-                    threadId:  $thread->id,
-                    messageId: $waitingMsg->id,
-                    body:      $waitingMsg->body,
-                    createdAt: $waitingMsg->created_at->toISOString(),
-                ));
-            }
+            $welcomeMsg = SupportMessage::createSystem(
+                $thread->id,
+                '🤖 AI Assistant is here to help. What can I assist you with?'
+            );
+            broadcast(new SystemMessageCreated(
+                threadId:  $thread->id,
+                messageId: $welcomeMsg->id,
+                body:      $welcomeMsg->body,
+                createdAt: $welcomeMsg->created_at->toISOString(),
+            ));
         }
 
         $metadata = null;
@@ -357,78 +362,20 @@ class SupportController extends Controller
      */
     private function initiateEscalation(SupportThread $thread, string $reason = null): JsonResponse
     {
-        // Try to auto-assign an available admin immediately
-        $admin = User::where('role', 'admin')
-            ->withCount(['assignedThreads' => fn($q) => $q->whereIn('chat_status', ['active'])])
-            ->orderBy('assigned_threads_count')
-            ->first();
-
-        if ($admin) {
-            // Assign immediately — skip the queue
-            $thread->update([
-                'chat_status' => 'active',
-                'assigned_admin_id' => $admin->id,
-                'requires_escalation' => true,
-                'queue_position' => null,
-            ]);
-
-            $firstName = explode(' ', trim($admin->name))[0];
-
-            // System message: connecting to live agent
-            $connectMsg = SupportMessage::createSystem(
-                $thread->id,
-                'Connecting you with a live agent…'
-            );
-            broadcast(new SystemMessageCreated(
-                threadId:   $thread->id,
-                messageId:  $connectMsg->id,
-                body:       $connectMsg->body,
-                createdAt:  $connectMsg->created_at->toISOString(),
-                chatStatus: 'escalating',
-            ));
-
-            // System message: you are now chatting with Admin
-            $assignMsg = SupportMessage::createSystem(
-                $thread->id,
-                "You are now connected with {$firstName}."
-            );
-            broadcast(new SystemMessageCreated(
-                threadId:   $thread->id,
-                messageId:  $assignMsg->id,
-                body:       $assignMsg->body,
-                createdAt:  $assignMsg->created_at->toISOString(),
-                chatStatus: 'active',
-            ));
-
-            // Push notify the assigned admin
-            PushController::sendToUser(
-                userId: $admin->id,
-                title:  'Support Request',
-                body:   'A user is requesting live agent support.',
-                url:    '/chat'
-            );
-
-            Log::info('[Support] Escalation auto-assigned', [
-                'thread_id' => $thread->id,
-                'admin_id' => $admin->id,
-                'reason' => $reason,
-            ]);
-
-            return response()->json(['escalated' => true, 'assigned' => true], 201);
-        }
-
-        // No admin available — put in queue
+        // Always queue — admin must open/view the thread to claim it (via markAsSeen)
         $nextPosition = SupportThread::where('chat_status', 'escalating')->count() + 1;
 
         $thread->update([
-            'chat_status' => 'escalating',
+            'chat_status'         => 'escalating',
             'requires_escalation' => true,
-            'queue_position' => $nextPosition,
+            'queue_position'      => $nextPosition,
+            'assigned_admin_id'   => null,
         ]);
 
+        // Notify user they are being connected
         $sysMsg = SupportMessage::createSystem(
             $thread->id,
-            'Connecting you with a live agent… All agents are currently busy. Please wait.'
+            'Connecting you with a live agent… Please wait.'
         );
 
         broadcast(new SystemMessageCreated(
@@ -439,7 +386,7 @@ class SupportController extends Controller
             chatStatus: 'escalating',
         ));
 
-        // Push notify all admins
+        // Push notify all admins so they see it in their inbox
         $admins = User::where('role', 'admin')->get();
         foreach ($admins as $adminUser) {
             PushController::sendToUser(
@@ -450,10 +397,10 @@ class SupportController extends Controller
             );
         }
 
-        Log::info('[Support] Escalation queued', [
-            'thread_id' => $thread->id,
+        Log::info('[Support] Escalation queued — awaiting admin claim via markAsSeen', [
+            'thread_id'      => $thread->id,
             'queue_position' => $nextPosition,
-            'reason' => $reason,
+            'reason'         => $reason,
         ]);
 
         return response()->json(['escalated' => true, 'queued' => true], 201);

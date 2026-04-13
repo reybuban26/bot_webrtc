@@ -165,10 +165,11 @@ window.supportApp = function () {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
                 });
-                // Admin claiming a waiting thread: update local status immediately
+                // Admin claiming an escalating thread: update local status immediately
                 // so the header switches to "🟢 Connected" without needing a refresh
-                if (this.userRole === 'admin' && this.chatStatus === 'waiting') {
+                if (this.userRole === 'admin' && this.chatStatus === 'escalating') {
                     this.chatStatus = 'active';
+                    this.assignedAdminId = this.userId;
                 }
             } catch (e) {
                 console.warn('[Support] markAsSeen failed', e);
@@ -197,8 +198,14 @@ window.supportApp = function () {
                 const r  = await fetch(url, { headers: { 'X-CSRF-TOKEN': this._csrf() } });
                 const d  = await r.json();
 
-                // No thread yet — wait for user's first message to create it
-                if (! d.thread_id) {
+                // No thread yet — eagerly create it so welcome message appears immediately
+                if (! d.thread_id && this.userRole !== 'admin') {
+                    const created = await this._ensureThread();
+                    if (!created) return;
+                    // _ensureThread sets threadId, starts poll, subscribes Reverb — fetch messages now
+                    await this.fetchMessages(false);
+                    return;
+                } else if (! d.thread_id) {
                     this.threadId = null;
                     return;
                 }
