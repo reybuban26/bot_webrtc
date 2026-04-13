@@ -1041,18 +1041,26 @@
         </div>
       </template>
       <template x-for="t in threads" :key="t.thread_id">
-        <div class="sp-thread-item" :class="{ active: t.user_id === activeUserId }"
+        <div class="sp-thread-item"
+             :class="{ active: t.user_id === activeUserId }"
+             :style="t.chat_status === 'escalating' ? 'border-left: 3px solid #f59e0b;' : ''"
              @click="selectThread(t.user_id, t.user_name, t.thread_id)">
-          <div class="sp-thread-av" x-text="t.user_name ? t.user_name.charAt(0).toUpperCase() : 'U'"></div>
+          <div class="sp-thread-av"
+               :style="t.chat_status === 'escalating' ? 'background: linear-gradient(135deg, #f59e0b, #ef4444);' : ''"
+               x-text="t.user_name ? t.user_name.charAt(0).toUpperCase() : 'U'"></div>
           <div class="sp-thread-meta">
-            <div class="sp-thread-name" 
-                 x-text="t.user_name"
-                 :style="unreadPerThread[t.thread_id] ? 'color: var(--accent); font-weight: 800; text-shadow: 0 0px 8px rgba(91,94,244,0.35);' : ''"></div>
-            <div class="sp-thread-preview" 
+            <div class="sp-thread-name"
+                 :style="unreadPerThread[t.thread_id] ? 'color: var(--accent); font-weight: 800; text-shadow: 0 0px 8px rgba(91,94,244,0.35);' : ''">
+              <span x-text="t.user_name"></span>
+              <template x-if="t.chat_status === 'escalating'">
+                <span style="font-size:.65rem;font-weight:600;color:#f59e0b;margin-left:6px;">⚡ Needs Agent</span>
+              </template>
+            </div>
+            <div class="sp-thread-preview"
                  x-text="t.last_message || 'No messages yet'"
                  :style="unreadPerThread[t.thread_id] ? 'color: var(--txt); font-weight: 700;' : ''"></div>
           </div>
-          <div x-show="unreadPerThread[t.thread_id]" 
+          <div x-show="unreadPerThread[t.thread_id]"
                x-text="unreadPerThread[t.thread_id]"
                x-transition.opacity
                style="display: none; background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 700; border-radius: 99px; padding: 2px 6px; min-width: 18px; text-align: center; margin-left: auto; box-shadow: 0 2px 5px rgba(239, 68, 68, 0.3);">
@@ -1223,9 +1231,10 @@
                            font-family: inherit; resize: none; height: 60px; margin-bottom: 8px;"></textarea>
           <button @click="submitRating()"
                   :disabled="!postChatRating.rating || postChatRating.submitted"
+                  :style="{ opacity: (!postChatRating.rating || postChatRating.submitted) ? '0.6' : '1' }"
                   style="width: 100%; padding: 8px; background: var(--accent); color: #fff; border: none;
                         border-radius: 6px; font-size: .85rem; font-weight: 600; cursor: pointer;
-                        transition: opacity .15s; disabled:opacity: 0.6;">
+                        transition: opacity .15s;">
             Submit
           </button>
         </div>
