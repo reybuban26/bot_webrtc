@@ -505,6 +505,19 @@ window.supportApp = function () {
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
                 });
                 this.chatStatus = 'ended';
+
+                // After ending, reset admin view back to thread list after brief delay
+                setTimeout(() => {
+                    this.threadId        = null;
+                    this.messages        = [];
+                    this.lastTs          = null;
+                    this.chatStatus      = 'waiting';
+                    this.activeUserId    = null;
+                    this.activeUserName  = '';
+                    this.assignedAdminId = null;
+                    this._clearPoll();
+                    this.open = false;
+                }, 1500);
             } catch (e) {
                 console.error('[Support] endChat failed', e);
             }
@@ -571,14 +584,35 @@ window.supportApp = function () {
 
                 if (response.ok) {
                     this.postChatRating.submitted = true;
-                    // Show thank you message briefly then reset
-                    setTimeout(() => {
-                        this.postChatRating = { rating: null, feedback: '', submitted: false };
+                    // After 2s: restart the thread and reset the UI to fresh state
+                    setTimeout(async () => {
+                        await this._restartChat();
                     }, 2000);
                 }
             } catch (e) {
                 console.error('[Support] Failed to submit rating', e);
             }
+        },
+
+        async _restartChat() {
+            if (!this.threadId) return;
+            try {
+                // Backend: reset thread to 'waiting' and create new welcome message
+                await fetch(`/api/support/thread/${this.threadId}/restart`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                });
+            } catch (e) {
+                console.warn('[Support] restartThread failed', e);
+            }
+            // Reset local state to fresh
+            this.postChatRating = { rating: null, feedback: '', submitted: false };
+            this.messages       = [];
+            this.lastTs         = null;
+            this.chatStatus     = 'waiting';
+            // Fetch fresh messages (just the new welcome message)
+            await this.fetchMessages(false);
+            this._scrollToBottom();
         },
 
         // ── E2EE Helpers ──────────────────────────────────────────

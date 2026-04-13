@@ -1208,8 +1208,8 @@
         </template>
       </div>
 
-      <!-- Post-chat rating form -->
-      <template x-if="chatStatus === 'ended' && !postChatRating.submitted">
+      <!-- Post-chat rating form (user side only) -->
+      <template x-if="chatStatus === 'ended' && !postChatRating.submitted && userRole !== 'admin'">
         <div style="padding: 16px; border-top: 1px solid var(--border); background: var(--bg-surface);">
           <div style="text-align: center; margin-bottom: 12px;">
             <div style="font-size: .9rem; font-weight: 600; color: var(--txt); margin-bottom: 8px;">How was your experience?</div>
@@ -1302,7 +1302,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=30"></script>
+<script src="{{ asset('js/support.js') }}?v=31"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

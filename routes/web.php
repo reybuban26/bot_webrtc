@@ -106,6 +106,7 @@ Route::prefix('api/support')->name('support.')->middleware(['auth', 'verified'])
     Route::post('/thread/{threadId}/typing',       [SupportController::class, 'typing'])->name('typing');
     Route::post('/thread/{threadId}/end-chat',     [SupportController::class, 'endChat'])->name('end-chat');
     Route::post('/thread/{threadId}/rate-chat',    [SupportController::class, 'rateChat'])->name('rate-chat');
+    Route::post('/thread/{threadId}/restart',      [SupportController::class, 'restartThread'])->name('restart');
     // Escalation assignment (admin only)
     Route::post('/escalations/assign',             [SupportController::class, 'assignEscalation'])->name('escalations.assign');
     // E2EE key exchange

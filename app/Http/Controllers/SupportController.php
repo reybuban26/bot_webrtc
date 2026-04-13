@@ -576,7 +576,7 @@ class SupportController extends Controller
 
         $sysMsg = SupportMessage::createSystem(
             $thread->id,
-            'Chat session ended by admin. Feel free to send a new message anytime.'
+            'Chat session ended. Thank you for reaching out!'
         );
 
         broadcast(new ChatEnded(
@@ -589,6 +589,46 @@ class SupportController extends Controller
         $thread->touch();
 
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Restart a thread after it has ended.
+     * Resets status to 'waiting' and creates a fresh AI welcome message.
+     */
+    public function restartThread(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        if ($request->user()->role === 'admin') {
+            return response()->json(['error' => 'Forbidden.'], 403);
+        }
+
+        if ($thread->chat_status !== 'ended') {
+            return response()->json(['success' => true]);
+        }
+
+        $thread->update([
+            'chat_status'         => 'waiting',
+            'assigned_admin_id'   => null,
+            'requires_escalation' => false,
+            'queue_position'      => null,
+            'ai_confidence'       => null,
+        ]);
+
+        $welcomeMsg = SupportMessage::createSystem(
+            $thread->id,
+            '🤖 AI Assistant is here to help. What can I assist you with?'
+        );
+
+        broadcast(new SystemMessageCreated(
+            threadId:  $thread->id,
+            messageId: $welcomeMsg->id,
+            body:      $welcomeMsg->body,
+            createdAt: $welcomeMsg->created_at->toISOString(),
+        ));
+
+        return response()->json(['success' => true, 'message_id' => $welcomeMsg->id]);
     }
 
     /**
