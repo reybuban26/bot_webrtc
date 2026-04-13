@@ -40,6 +40,14 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     }
 
     /**
+     * Support threads assigned to this admin
+     */
+    public function assignedThreads(): HasMany
+    {
+        return $this->hasMany(SupportThread::class, 'assigned_admin_id');
+    }
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>

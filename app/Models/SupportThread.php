@@ -15,10 +15,17 @@ class SupportThread extends Model
         'encrypted_keys',
         'chat_status',
         'assigned_admin_id',
+        'ai_confidence',
+        'requires_escalation',
+        'queue_position',
+        'metadata',
     ];
 
     protected $casts = [
         'encrypted_keys' => 'array',
+        'ai_confidence' => 'decimal:2',
+        'requires_escalation' => 'boolean',
+        'metadata' => 'array',
     ];
 
     public function user(): BelongsTo
@@ -65,5 +72,29 @@ class SupportThread extends Model
     public static function nextAvailableAdmin(): ?User
     {
         return User::where('role', 'admin')->first();
+    }
+
+    /**
+     * Scope: Find threads queued for escalation, ordered by queue position
+     */
+    public function scopeQueuedForEscalation($query)
+    {
+        return $query->where('chat_status', 'escalating')->orderBy('queue_position');
+    }
+
+    /**
+     * Check if thread is currently being handled by AI
+     */
+    public function isAiActive(): bool
+    {
+        return $this->chat_status === 'ai_active';
+    }
+
+    /**
+     * Check if escalation was requested
+     */
+    public function hasEscalationRequested(): bool
+    {
+        return $this->requires_escalation;
     }
 }

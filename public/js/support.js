@@ -50,6 +50,13 @@ window.supportApp = function () {
         _e2eeReady: false,          // true after key pair is loaded/generated
         _allPartiesHaveKeys: false, // true only when BOTH user and admin have key slots
 
+        // ── Post-chat Rating State ─────────────────────────────
+        postChatRating: {
+            rating: null,
+            feedback: '',
+            submitted: false,
+        },
+
         // ── Init ──────────────────────────────────────────────────
         async init() {
             this.$watch('open', val => {
@@ -369,6 +376,8 @@ window.supportApp = function () {
         /** Dynamic subtitle label shown under the header name (user view). */
         get chatStatusLabel() {
             if (this.chatStatus === 'active') return '🟢 Connected';
+            if (this.chatStatus === 'ai_active') return '🤖 AI Agent';
+            if (this.chatStatus === 'escalating') return '⏳ Connecting to agent…';
             if (this.chatStatus === 'ended')  return 'Chat ended';
             return 'We usually reply within minutes';
         },
@@ -533,6 +542,35 @@ window.supportApp = function () {
                         webrtcEl.callUser(this.activeUserId, this.activeUserName);
                     }
                 }, 100);
+            }
+        },
+
+        // ── Post-Chat Rating ──────────────────────────────────────
+        async submitRating() {
+            if (!this.threadId || !this.postChatRating.rating) return;
+
+            try {
+                const response = await fetch(`/api/support/thread/${this.threadId}/rate-chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({
+                        rating: this.postChatRating.rating,
+                        feedback: this.postChatRating.feedback,
+                    }),
+                });
+
+                if (response.ok) {
+                    this.postChatRating.submitted = true;
+                    // Show thank you message briefly then reset
+                    setTimeout(() => {
+                        this.postChatRating = { rating: null, feedback: '', submitted: false };
+                    }, 2000);
+                }
+            } catch (e) {
+                console.error('[Support] Failed to submit rating', e);
             }
         },
 

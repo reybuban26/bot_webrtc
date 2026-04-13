@@ -10,6 +10,7 @@ use App\Models\CallRequest;
 use App\Models\SupportMessage;
 use App\Models\SupportThread;
 use App\Models\User;
+use App\Services\AiResponseService;
 use App\Services\QwenAiService;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,9 @@ use Illuminate\Support\Facades\Log;
 
 class SupportController extends Controller
 {
+    public function __construct(
+        private AiResponseService $aiService,
+    ) {}
     /**
      * Find the support thread for the authenticated user (no auto-create).
      * Returns thread_id: null if no thread exists yet.
@@ -164,6 +168,7 @@ class SupportController extends Controller
 
     /**
      * Send a plain text message to a thread.
+     * If thread status is 'waiting', route message to AI first.
      */
     public function send(Request $request, int $threadId): JsonResponse
     {
@@ -202,7 +207,7 @@ class SupportController extends Controller
             if ($needsWaiting) {
                 $waitingMsg = SupportMessage::createSystem(
                     $thread->id,
-                    'Stay tuned, connecting you to a support agent…'
+                    '🤖 AI Assistant is here to help. What can I assist you with?'
                 );
                 broadcast(new SystemMessageCreated(
                     threadId:  $thread->id,
@@ -251,6 +256,12 @@ class SupportController extends Controller
 
         $thread->touch();
 
+        // ── AI ROUTING: If thread is 'waiting', route to AI ──
+        if ($request->user()->role !== 'admin' && $thread->chat_status === 'waiting' && $request->filled('body')) {
+            return $this->handleAiResponse($thread, $message, $isEncrypted, $request->input('iv'));
+        }
+
+        // ── REGULAR MESSAGE: Broadcast to recipient ──
         $recipientId = $request->user()->role === 'admin'
             ? $thread->user_id
             : User::where('role', 'admin')->first()?->id;
@@ -273,6 +284,126 @@ class SupportController extends Controller
             'is_encrypted' => (bool) $message->is_encrypted,
             'created_at'   => $message->created_at->toISOString(),
         ], 201);
+    }
+
+    /**
+     * Handle AI response: generate response, check confidence, escalate if needed
+     */
+    private function handleAiResponse(SupportThread $thread, SupportMessage $userMessage, bool $isEncrypted, ?string $iv): JsonResponse
+    {
+        // Check for explicit escalation request in user message
+        if ($this->aiService->userRequestsEscalation($userMessage->body)) {
+            return $this->initiateEscalation($thread, 'User requested escalation');
+        }
+
+        // Build conversation history
+        $history = $this->buildConversationHistory($thread);
+
+        // Generate AI response
+        $aiResult = $this->aiService->generateResponse($thread, $userMessage->body, $history);
+
+        // Check if escalation is needed
+        if ($aiResult['should_escalate']) {
+            return $this->initiateEscalation($thread, 'AI escalation triggered (confidence: ' . round($aiResult['confidence'], 2) . ')');
+        }
+
+        // Store AI response with same encryption status as user message
+        $aiMetadata = ['confidence' => $aiResult['confidence']];
+        if ($isEncrypted && $iv) {
+            $aiMetadata = array_merge($aiMetadata, [
+                'encryption' => [
+                    'iv'   => $iv,
+                    'algo' => 'AES-GCM',
+                ],
+            ]);
+        }
+
+        $aiMessage = SupportMessage::create([
+            'thread_id'    => $thread->id,
+            'sender_id'    => null, // AI message (no sender)
+            'body'         => $aiResult['response'],
+            'type'         => 'ai_response',
+            'metadata'     => $aiMetadata,
+            'is_encrypted' => $isEncrypted,
+        ]);
+
+        // Update thread state to ai_active
+        $thread->update([
+            'chat_status' => 'ai_active',
+            'ai_confidence' => $aiResult['confidence'],
+        ]);
+
+        $thread->touch();
+
+        return response()->json([
+            'id'           => $aiMessage->id,
+            'body'         => $aiMessage->body,
+            'sender_id'    => null,
+            'type'         => 'ai_response',
+            'metadata'     => $aiMessage->metadata,
+            'is_encrypted' => (bool) $aiMessage->is_encrypted,
+            'created_at'   => $aiMessage->created_at->toISOString(),
+            'is_ai'        => true,
+        ], 201);
+    }
+
+    /**
+     * Initiate escalation: set status to 'escalating', create system message, notify admins
+     */
+    private function initiateEscalation(SupportThread $thread, string $reason = null): JsonResponse
+    {
+        // Get next queue position
+        $nextPosition = SupportThread::where('chat_status', 'escalating')
+            ->count() + 1;
+
+        // Update thread
+        $thread->update([
+            'chat_status' => 'escalating',
+            'requires_escalation' => true,
+            'queue_position' => $nextPosition,
+        ]);
+
+        // Create system message
+        $sysMsg = SupportMessage::createSystem(
+            $thread->id,
+            'Connecting you with a live agent…'
+        );
+
+        // Broadcast escalation event
+        broadcast(new SystemMessageCreated(
+            threadId: $thread->id,
+            messageId: $sysMsg->id,
+            body: $sysMsg->body,
+            createdAt: $sysMsg->created_at->toISOString(),
+            chatStatus: 'escalating',
+        ));
+
+        Log::info('[Support] Escalation initiated', [
+            'thread_id' => $thread->id,
+            'reason' => $reason,
+            'queue_position' => $nextPosition,
+        ]);
+
+        return response()->json(['escalated' => true], 201);
+    }
+
+    /**
+     * Build conversation history for AI from thread messages
+     */
+    private function buildConversationHistory(SupportThread $thread): array
+    {
+        return $thread->messages()
+            ->whereIn('type', ['text', 'ai_response'])
+            ->latest()
+            ->limit(10)
+            ->get()
+            ->reverse()
+            ->map(fn($msg) => [
+                'role' => $msg->type === 'ai_response' ? 'assistant' : 'user',
+                'content' => $msg->body,
+            ])
+            ->values()
+            ->toArray();
     }
 
     /**
@@ -437,6 +568,97 @@ class SupportController extends Controller
         ));
 
         $thread->touch();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Assign next escalating thread to available admin
+     * Admin assignment is automatic: admin with fewest active threads gets assigned
+     */
+    public function assignEscalation(Request $request): JsonResponse
+    {
+        if ($request->user()->role !== 'admin') {
+            return response()->json(['error' => 'Forbidden.'], 403);
+        }
+
+        // Get next escalating thread in queue
+        $thread = SupportThread::queuedForEscalation()
+            ->orderBy('queue_position')
+            ->first();
+
+        if (!$thread) {
+            return response()->json(['message' => 'No pending escalations']);
+        }
+
+        // Find admin with fewest assigned threads
+        $admin = User::where('role', 'admin')
+            ->withCount('assignedThreads')
+            ->orderBy('assigned_threads_count')
+            ->first();
+
+        if (!$admin) {
+            return response()->json(['message' => 'No admins available'], 503);
+        }
+
+        // Assign thread to admin
+        $thread->update([
+            'chat_status' => 'active',
+            'assigned_admin_id' => $admin->id,
+            'queue_position' => null,
+        ]);
+
+        // Create system message
+        $firstName = explode(' ', trim($admin->name))[0];
+        $sysMsg = SupportMessage::createSystem(
+            $thread->id,
+            "You are now connected with {$firstName}."
+        );
+
+        // Broadcast assignment
+        broadcast(new SystemMessageCreated(
+            threadId: $thread->id,
+            messageId: $sysMsg->id,
+            body: $sysMsg->body,
+            createdAt: $sysMsg->created_at->toISOString(),
+            chatStatus: 'active',
+        ));
+
+        Log::info('[Support] Escalation assigned', [
+            'thread_id' => $thread->id,
+            'admin_id' => $admin->id,
+            'admin_name' => $admin->name,
+        ]);
+
+        return response()->json(['assigned' => true, 'admin_id' => $admin->id]);
+    }
+
+    /**
+     * User rates the chat experience after session ends
+     */
+    public function rateChat(Request $request, int $threadId): JsonResponse
+    {
+        $thread = SupportThread::findOrFail($threadId);
+        $this->authorizeThread($request->user(), $thread);
+
+        $request->validate([
+            'rating' => 'required|integer|between:1,5',
+            'feedback' => 'nullable|string|max:1000',
+        ]);
+
+        // Update thread metadata with rating
+        $metadata = $thread->metadata ?? [];
+        $metadata['rating'] = $request->integer('rating');
+        $metadata['feedback'] = $request->string('feedback', '');
+        $metadata['rated_at'] = now()->toISOString();
+
+        $thread->update(['metadata' => $metadata]);
+
+        Log::info('[Support] Chat rated', [
+            'thread_id' => $thread->id,
+            'rating' => $request->integer('rating'),
+            'has_feedback' => $request->filled('feedback'),
+        ]);
 
         return response()->json(['success' => true]);
     }

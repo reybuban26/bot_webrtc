@@ -267,6 +267,10 @@
     font-size: .815rem;
     line-height: 1.65;
   }
+  .sp-bubble.ai-response {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+    border: 1px solid rgba(59, 130, 246, 0.3);
+  }
   /* Rendered Markdown inside meeting notes */
   .sp-notes-body .mn-heading {
     font-size: .88rem;
@@ -1105,6 +1109,17 @@
               </div>
             </template>
 
+            <!-- AI Response message -->
+            <template x-if="msg.type === 'ai_response'">
+              <div :class="['sp-msg-group', 'other']">
+                <div class="sp-sender-name">🤖 AI Agent</div>
+                <div :class="['sp-bubble', 'other', 'ai-response']">
+                  <span x-text="msg.body"></span>
+                </div>
+                <div class="sp-time" x-text="formatTime(msg.created_at)"></div>
+              </div>
+            </template>
+
             <!-- Regular text message -->
             <template x-if="msg.type === 'text'">
               <div :class="['sp-msg-group', isOwnMessage(msg) ? 'own' : 'other']">
@@ -1185,6 +1200,37 @@
         </template>
       </div>
 
+      <!-- Post-chat rating form -->
+      <template x-if="chatStatus === 'ended' && !postChatRating.submitted">
+        <div style="padding: 16px; border-top: 1px solid var(--border); background: var(--bg-surface);">
+          <div style="text-align: center; margin-bottom: 12px;">
+            <div style="font-size: .9rem; font-weight: 600; color: var(--txt); margin-bottom: 8px;">How was your experience?</div>
+            <div style="display: flex; justify-content: center; gap: 8px;">
+              <template x-for="i in [1, 2, 3, 4, 5]">
+                <button @click="postChatRating.rating = i"
+                        :style="{ 'opacity': postChatRating.rating >= i ? '1' : '0.4' }"
+                        style="background: none; border: none; cursor: pointer; font-size: 1.5rem; transition: opacity .15s; padding: 4px;">
+                  ⭐
+                </button>
+              </template>
+            </div>
+          </div>
+          <textarea x-model="postChatRating.feedback"
+                    placeholder="Optional feedback…"
+                    maxlength="1000"
+                    style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;
+                           background: var(--bg-base); color: var(--txt); font-size: .8rem;
+                           font-family: inherit; resize: none; height: 60px; margin-bottom: 8px;"></textarea>
+          <button @click="submitRating()"
+                  :disabled="!postChatRating.rating || postChatRating.submitted"
+                  style="width: 100%; padding: 8px; background: var(--accent); color: #fff; border: none;
+                        border-radius: 6px; font-size: .85rem; font-weight: 600; cursor: pointer;
+                        transition: opacity .15s; disabled:opacity: 0.6;">
+            Submit
+          </button>
+        </div>
+      </template>
+
       <div x-show="seenBy" x-transition.opacity
              style="text-align: center; font-size: .65rem;
                     color: var(--txt-3); opacity: 0.5;
@@ -1192,7 +1238,7 @@
             ✓✓ <span x-text="seenBy"></span>
         </div>
 
-      <div x-show="typingText" 
+      <div x-show="typingText"
             x-transition.opacity
             style="padding: 4px 14px 6px; font-size: .72rem; color: var(--txt-3); display: flex; align-items: center; gap: 6px;">
             <div style="display: flex; gap: 3px; align-items: center;">
@@ -1247,7 +1293,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=28"></script>
+<script src="{{ asset('js/support.js') }}?v=29"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {
