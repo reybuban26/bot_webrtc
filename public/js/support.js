@@ -48,6 +48,7 @@ window.supportApp = function () {
         _privateKey: null,          // RSA private key (CryptoKey, in memory)
         _publicKeyB64: null,        // own base64 public key (for comparison)
         _e2eeReady: false,          // true after key pair is loaded/generated
+        _allPartiesHaveKeys: false, // true only when BOTH user and admin have key slots
 
         // ── Init ──────────────────────────────────────────────────
         async init() {
@@ -443,7 +444,11 @@ window.supportApp = function () {
 
             try {
                 const formData = new FormData();
-                const threadKey = (this._e2eeReady && typeof E2EE !== 'undefined')
+
+                // Only encrypt when BOTH parties have key slots.
+                // If the admin hasn't been added to encrypted_keys yet,
+                // send plaintext so the admin can always read messages.
+                const threadKey = (this._e2eeReady && this._allPartiesHaveKeys && typeof E2EE !== 'undefined')
                     ? E2EE.getCachedThreadKey(this.threadId)
                     : null;
 
@@ -539,13 +544,36 @@ window.supportApp = function () {
                 this._privateKey = await E2EE.loadPrivateKey();
 
                 if (!this._privateKey) {
+                    // First time — generate and persist both keys
                     const { publicKey, privateKey } = await E2EE.generateKeyPair();
                     await E2EE.savePrivateKey(privateKey);
                     this._privateKey = privateKey;
 
                     const pubB64 = await E2EE.exportPublicKey(publicKey);
                     this._publicKeyB64 = pubB64;
+                    await E2EE.savePublicKeyB64(pubB64);
                     await this._uploadPublicKey(pubB64);
+                } else {
+                    // Existing private key — load the stored public key and re-upload
+                    // so the server always has it (handles DB resets / first-time admin login)
+                    const storedPubB64 = await E2EE.loadPublicKeyB64();
+
+                    if (storedPubB64) {
+                        this._publicKeyB64 = storedPubB64;
+                        await this._uploadPublicKey(storedPubB64); // idempotent PUT
+                    } else {
+                        // No stored public key — generate a fresh keypair as last resort
+                        // (old thread keys wrapped with old public key will be unreadable,
+                        //  but future key exchanges will work correctly)
+                        const { publicKey, privateKey } = await E2EE.generateKeyPair();
+                        await E2EE.savePrivateKey(privateKey);
+                        this._privateKey = privateKey;
+
+                        const pubB64 = await E2EE.exportPublicKey(publicKey);
+                        this._publicKeyB64 = pubB64;
+                        await E2EE.savePublicKeyB64(pubB64);
+                        await this._uploadPublicKey(pubB64);
+                    }
                 }
 
                 this._e2eeReady = true;
@@ -568,6 +596,11 @@ window.supportApp = function () {
         async _initThreadKey(threadId, partnerUserId, _retryCount = 0) {
             if (!this._e2eeReady || typeof E2EE === 'undefined') return;
 
+            // Determine who the "other party" is for key-slot verification
+            const expectedPartnerId = partnerUserId
+                ? partnerUserId
+                : parseInt(document.querySelector('meta[name="support-admin-id"]')?.content || '0');
+
             try {
                 const r = await fetch(`/api/support/thread/${threadId}/keys`, {
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
@@ -584,19 +617,15 @@ window.supportApp = function () {
                     // 🔄 If known partner has no slot, add them now using our thread key.
                     // This handles the case where admin opens the thread before their
                     // public key was available when the user first set up the thread key.
-                    if (partnerUserId && !keys[String(partnerUserId)]) {
-                        await this._addPartySlot(threadId, partnerUserId, threadKey, keys);
+                    let partnerHasSlot = !!keys[String(expectedPartnerId)];
+
+                    if (expectedPartnerId && expectedPartnerId !== this.userId && !partnerHasSlot) {
+                        partnerHasSlot = await this._addPartySlot(threadId, expectedPartnerId, threadKey, keys) === true;
                     }
 
-                    // User side: also ensure the default admin has a slot
-                    if (!partnerUserId) {
-                        const adminId = parseInt(
-                            document.querySelector('meta[name="support-admin-id"]')?.content || '0'
-                        );
-                        if (adminId && adminId !== this.userId && !keys[String(adminId)]) {
-                            await this._addPartySlot(threadId, adminId, threadKey, keys);
-                        }
-                    }
+                    // ✅ Mark encryption as safe only when both parties have key slots.
+                    // Until then, messages are sent as plaintext so both sides can read them.
+                    this._allPartiesHaveKeys = partnerHasSlot;
 
                 } else if (Object.keys(keys).length === 0) {
                     // ✅ No keys exist at all — we're the first party, generate a fresh thread key
@@ -659,6 +688,11 @@ window.supportApp = function () {
 
                     E2EE.cacheThreadKey(threadId, threadKey);
 
+                    // Check if partner was included
+                    this._allPartiesHaveKeys = expectedPartnerId
+                        ? !!encryptedMap[String(expectedPartnerId)]
+                        : false;
+
                 } else {
                     // ⚠️ Keys exist but no slot for us yet.
                     // The user who holds the key will add our slot once they open their panel.
@@ -690,7 +724,7 @@ window.supportApp = function () {
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
                 });
                 const d = await r.json();
-                if (!d.public_key) return; // Party hasn't generated their keypair yet
+                if (!d.public_key) return false; // Party hasn't generated their keypair yet
 
                 const pubKey     = await E2EE.importPublicKey(d.public_key);
                 const wrappedKey = await E2EE.encryptThreadKeyForUser(threadKey, pubKey);
@@ -704,8 +738,10 @@ window.supportApp = function () {
                     },
                     body: JSON.stringify({ keys: updatedKeys }),
                 });
+                return true;
             } catch (err) {
                 console.warn('[E2EE] Failed to add key slot for user', partyUserId, err);
+                return false;
             }
         },
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan tinker '--execute=:*)",
+      "Bash(php artisan:*)",
+      "Bash(php -r \"echo 'hello';\")"
+    ]
+  }
+}

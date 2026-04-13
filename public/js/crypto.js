@@ -244,6 +244,26 @@
         _threadKeyCache.clear();
     }
 
+    // ── Public key persistence (IndexedDB) ────────────────────────────────────
+    // Stored as a plain base64 string so it can be re-uploaded after a DB reset.
+
+    const PUB_KEY_ID = 'rsa_public_key_b64';
+
+    async function savePublicKeyB64(b64) {
+        const db = await openDB();
+        await dbPut(db, PUB_KEY_ID, b64);
+    }
+
+    async function loadPublicKeyB64() {
+        try {
+            const db  = await openDB();
+            const val = await dbGet(db, PUB_KEY_ID);
+            return val || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     // ── Public API ─────────────────────────────────────────────────────────────
 
     global.E2EE = {
@@ -257,6 +277,8 @@
         decryptMessage,
         savePrivateKey,
         loadPrivateKey,
+        savePublicKeyB64,
+        loadPublicKeyB64,
         cacheThreadKey,
         getCachedThreadKey,
         clearThreadKeyCache,

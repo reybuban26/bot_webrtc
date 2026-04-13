@@ -1059,7 +1059,8 @@
   </template>
 
   <!-- ── Messages View ── -->
-  <template x-if="threadId">
+  <!-- Show for admin only when a thread is selected; for user always (thread is created lazily on first send) -->
+  <template x-if="threadId || userRole === 'user'">
     <div class="sp-messages-wrap">
       <div id="support-messages">
         <!-- Spacer: pushes messages to the bottom when there are fewer messages -->
@@ -1245,8 +1246,8 @@
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
-<script src="{{ asset('js/crypto.js') }}?v=1"></script>
-<script src="{{ asset('js/support.js') }}?v=25"></script>
+<script src="{{ asset('js/crypto.js') }}?v=2"></script>
+<script src="{{ asset('js/support.js') }}?v=28"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {
