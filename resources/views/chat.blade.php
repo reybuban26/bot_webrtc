@@ -1015,13 +1015,13 @@
       </button>
     </template>
 
-    <!-- 🚫 End Chat button (admin only, when thread is active/waiting) -->
-    <template x-if="userRole === 'admin' && threadId && chatStatus !== 'ended'">
+    <!-- 🚫 End Chat button (admin only, ONLY when admin is the active agent on this thread) -->
+    <template x-if="userRole === 'admin' && threadId && chatStatus === 'active'">
       <button @click="endChat()" title="End this chat session"
-              style="background:#ef4444;border:none;border-radius:20px;padding:7px 12px;cursor:pointer;color:#fff;display:flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;transition:opacity .15s;flex-shrink:0;opacity:.9"
+              style="background:#ef4444;border:none;border-radius:20px;padding:7px 13px;cursor:pointer;color:#fff;display:flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;transition:opacity .15s;flex-shrink:0;opacity:.9"
               onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.9">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-        End
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        End Chat
       </button>
     </template>
 
@@ -1055,10 +1055,29 @@
               <template x-if="t.chat_status === 'escalating'">
                 <span style="font-size:.65rem;font-weight:600;color:#f59e0b;margin-left:6px;">⚡ Needs Agent</span>
               </template>
+              <template x-if="t.resolution_status === 'resolved'">
+                <span style="font-size:.62rem;font-weight:600;color:#22c55e;margin-left:6px;background:rgba(34,197,94,.12);padding:1px 5px;border-radius:4px;">✓ Resolved</span>
+              </template>
+              <template x-if="t.resolution_status === 'pending'">
+                <span style="font-size:.62rem;font-weight:600;color:#f59e0b;margin-left:6px;background:rgba(245,158,11,.12);padding:1px 5px;border-radius:4px;">⏳ Pending</span>
+              </template>
             </div>
-            <div class="sp-thread-preview"
-                 x-text="t.last_message || 'No messages yet'"
-                 :style="unreadPerThread[t.thread_id] ? 'color: var(--txt); font-weight: 700;' : ''"></div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div class="sp-thread-preview"
+                   x-text="t.last_message || 'No messages yet'"
+                   :style="unreadPerThread[t.thread_id] ? 'color: var(--txt); font-weight: 700;' : ''"></div>
+              <!-- User resolved indicator -->
+              <template x-if="t.is_resolved_by_user === true">
+                <div style="font-size:.65rem;color:#22c55e;flex-shrink:0;white-space:nowrap;">✔ Resolved by user</div>
+              </template>
+              <template x-if="t.is_resolved_by_user === false">
+                <div style="font-size:.65rem;color:#ef4444;flex-shrink:0;white-space:nowrap;">✘ Not resolved</div>
+              </template>
+              <!-- Star rating -->
+              <template x-if="t.feedback_rating">
+                <div style="font-size:.65rem;color:#f59e0b;flex-shrink:0;" x-text="'★'.repeat(t.feedback_rating)"></div>
+              </template>
+            </div>
           </div>
           <div x-show="unreadPerThread[t.thread_id]"
                x-text="unreadPerThread[t.thread_id]"
@@ -1078,11 +1097,23 @@
         <!-- Spacer: pushes messages to the bottom when there are fewer messages -->
         <div class="sp-msg-spacer"></div>
 
-        <!-- Empty state -->
-        <template x-if="messages.length === 0">
+        <!-- Static AI welcome bubble (user side only, not persisted in DB).
+             Shown whenever there are no "real" messages in the current session,
+             so empty threads never need to exist in the database. -->
+        <template x-if="userRole !== 'admin' && messages.length === 0 && chatStatus !== 'ended'">
+          <div style="display:flex;justify-content:flex-start;margin:10px 0">
+            <div class="sp-bubble received" style="max-width:85%">
+              <div style="font-size:.7rem;font-weight:600;color:#6366f1;margin-bottom:4px">🤖 AI Assistant</div>
+              <div>Hi! I'm the AI assistant. How can I help you today? If you'd like to speak with a human agent, just say "talk to agent".</div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Admin empty state -->
+        <template x-if="userRole === 'admin' && messages.length === 0">
           <div style="text-align:center;padding:32px 16px">
-            <div style="font-size:2.5rem;margin-bottom:8px">👋</div>
-            <p style="color:var(--txt-3);font-size:.82rem;margin:0">No messages yet. Say hello!</p>
+            <div style="font-size:2.5rem;margin-bottom:8px">💬</div>
+            <p style="color:var(--txt-3);font-size:.82rem;margin:0">No messages in this thread yet.</p>
           </div>
         </template>
 
@@ -1208,35 +1239,84 @@
         </template>
       </div>
 
-      <!-- Post-chat rating form (user side only) -->
+      <!-- Post-chat feedback form (user side only) -->
       <template x-if="chatStatus === 'ended' && !postChatRating.submitted && userRole !== 'admin'">
-        <div style="padding: 16px; border-top: 1px solid var(--border); background: var(--bg-surface);">
-          <div style="text-align: center; margin-bottom: 12px;">
-            <div style="font-size: .9rem; font-weight: 600; color: var(--txt); margin-bottom: 8px;">How was your experience?</div>
-            <div style="display: flex; justify-content: center; gap: 8px;">
-              <template x-for="i in [1, 2, 3, 4, 5]">
-                <button @click="postChatRating.rating = i"
-                        :style="{ 'opacity': postChatRating.rating >= i ? '1' : '0.4' }"
-                        style="background: none; border: none; cursor: pointer; font-size: 1.5rem; transition: opacity .15s; padding: 4px;">
-                  ⭐
-                </button>
-              </template>
+        <div style="border-top: 1px solid var(--border); background: var(--bg-surface);">
+
+          <!-- Thank you banner after submit (brief flash before _restartChat runs) -->
+          <template x-if="postChatRating.submitted">
+            <div style="padding:20px;text-align:center;">
+              <div style="font-size:1.6rem;margin-bottom:6px;">🙏</div>
+              <div style="font-size:.85rem;font-weight:600;color:var(--txt);">Thank you for your feedback!</div>
+              <div style="font-size:.73rem;color:var(--txt-3);margin-top:4px;">Starting a new chat…</div>
             </div>
-          </div>
-          <textarea x-model="postChatRating.feedback"
-                    placeholder="Optional feedback…"
-                    maxlength="1000"
-                    style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;
-                           background: var(--bg-base); color: var(--txt); font-size: .8rem;
-                           font-family: inherit; resize: none; height: 60px; margin-bottom: 8px;"></textarea>
-          <button @click="submitRating()"
-                  :disabled="!postChatRating.rating || postChatRating.submitted"
-                  :style="{ opacity: (!postChatRating.rating || postChatRating.submitted) ? '0.6' : '1' }"
-                  style="width: 100%; padding: 8px; background: var(--accent); color: #fff; border: none;
-                        border-radius: 6px; font-size: .85rem; font-weight: 600; cursor: pointer;
-                        transition: opacity .15s;">
-            Submit
-          </button>
+          </template>
+
+          <template x-if="!postChatRating.submitted">
+            <div style="padding:16px;">
+
+              <!-- Question 1: Was your issue resolved? -->
+              <div style="margin-bottom:14px;">
+                <div style="font-size:.82rem;font-weight:700;color:var(--txt);margin-bottom:8px;text-align:center;">
+                  Was your issue resolved?
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button @click="postChatRating.isResolved = true"
+                          :style="postChatRating.isResolved === true
+                            ? 'background:#22c55e;color:#fff;border-color:#22c55e;'
+                            : 'background:transparent;color:var(--txt-3);border-color:var(--border);'"
+                          style="flex:1;padding:9px 8px;border:1.5px solid;border-radius:10px;cursor:pointer;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;">
+                    ✅ Yes
+                  </button>
+                  <button @click="postChatRating.isResolved = false"
+                          :style="postChatRating.isResolved === false
+                            ? 'background:#ef4444;color:#fff;border-color:#ef4444;'
+                            : 'background:transparent;color:var(--txt-3);border-color:var(--border);'"
+                          style="flex:1;padding:9px 8px;border:1.5px solid;border-radius:10px;cursor:pointer;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;">
+                    ❌ No
+                  </button>
+                </div>
+              </div>
+
+              <!-- Question 2: Star rating (optional) -->
+              <div style="margin-bottom:12px;">
+                <div style="font-size:.78rem;color:var(--txt-3);margin-bottom:6px;text-align:center;">
+                  Rate your experience <span style="opacity:.6;">(optional)</span>
+                </div>
+                <div style="display:flex;justify-content:center;gap:4px;">
+                  <template x-for="i in [1, 2, 3, 4, 5]">
+                    <button @click="postChatRating.rating = i"
+                            :style="postChatRating.rating >= i
+                              ? 'opacity:1;transform:scale(1.1);'
+                              : 'opacity:0.35;'"
+                            style="background:none;border:none;cursor:pointer;font-size:1.4rem;padding:2px 3px;transition:all .12s;line-height:1;">
+                      ⭐
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Question 3: Comment (optional) -->
+              <textarea x-model="postChatRating.feedback"
+                        placeholder="Leave a comment… (optional)"
+                        maxlength="1000"
+                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;
+                               background:var(--bg-base);color:var(--txt);font-size:.78rem;
+                               font-family:inherit;resize:none;height:52px;margin-bottom:10px;box-sizing:border-box;"></textarea>
+
+              <!-- Submit (enabled only after Yes/No answered) -->
+              <button @click="submitRating()"
+                      :disabled="postChatRating.isResolved === null"
+                      :style="postChatRating.isResolved === null
+                        ? 'opacity:.4;cursor:not-allowed;'
+                        : 'opacity:1;cursor:pointer;'"
+                      style="width:100%;padding:9px;background:var(--accent);color:#fff;border:none;
+                             border-radius:8px;font-size:.82rem;font-weight:700;transition:opacity .15s;">
+                Submit Feedback
+              </button>
+
+            </div>
+          </template>
         </div>
       </template>
 
@@ -1260,37 +1340,94 @@
 
       <!-- Input bar -->
       <div class="sp-input-row" style="flex-direction: column; padding: 0; gap: 0;">
-        <!-- File preview strip -->
-        <div class="sp-file-preview" x-show="stagedFile" style="display:none;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            <span class="sp-file-preview-name" x-text="stagedFile?.name"></span>
-            <span style="opacity:.5; font-size:.7rem;" x-text="stagedFile ? formatBytes(stagedFile.size) : ''"></span>
-            <button class="sp-file-preview-remove" @click="removeSupportFile()">×</button>
-        </div>
 
-        <!-- Input row -->
-        <div style="display:flex; align-items:center; gap:8px; padding: 10px 12px 14px;">
-            <button class="sp-attach-btn" @click="$refs.spFileInput.click()" title="Attach file">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-            </button>
-            <input type="file" x-ref="spFileInput" @change="handleSupportFile($event)" style="display:none;"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp">
-            <input class="sp-input"
-                  type="text"
-                  placeholder="Type a message…"
-                  x-model="inputText"
-                  @input="inputText ? _broadcastTyping(true) : _broadcastTyping(false)"
-                  @keydown.enter.prevent="sendMessage()"
-                  @blur="_broadcastTyping(false)"/>
-            <button class="sp-send"
-                    :disabled="(!inputText.trim() && !stagedFile) || sending"
-                    @click="sendMessage()">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
-            </button>
-        </div>
+        <!-- Chat ended notice (replaces input when ended) -->
+        <template x-if="chatStatus === 'ended' && userRole !== 'user'">
+          <div style="padding:12px 16px;text-align:center;font-size:.76rem;color:var(--txt-3);border-top:1px solid var(--border);background:var(--bg-surface);">
+            <span style="opacity:.6;">Session has ended</span>
+          </div>
+        </template>
+
+        <!-- Normal input (hidden when chat ended for admin, shown always for user who can restart) -->
+        <template x-if="chatStatus !== 'ended' || userRole === 'user'">
+          <div>
+            <!-- File preview strip -->
+            <div class="sp-file-preview" x-show="stagedFile" style="display:none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                <span class="sp-file-preview-name" x-text="stagedFile?.name"></span>
+                <span style="opacity:.5; font-size:.7rem;" x-text="stagedFile ? formatBytes(stagedFile.size) : ''"></span>
+                <button class="sp-file-preview-remove" @click="removeSupportFile()">×</button>
+            </div>
+
+            <!-- Input row -->
+            <div style="display:flex; align-items:center; gap:8px; padding: 10px 12px 14px;">
+                <button class="sp-attach-btn" @click="$refs.spFileInput.click()" title="Attach file"
+                        :disabled="chatStatus === 'ended'"
+                        :style="chatStatus === 'ended' ? 'opacity:.3;cursor:not-allowed;' : ''">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                </button>
+                <input type="file" x-ref="spFileInput" @change="handleSupportFile($event)" style="display:none;"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp">
+                <input class="sp-input"
+                      type="text"
+                      :placeholder="chatStatus === 'ended' ? 'Send a message to start a new chat…' : 'Type a message…'"
+                      x-model="inputText"
+                      @input="inputText ? _broadcastTyping(true) : _broadcastTyping(false)"
+                      @keydown.enter.prevent="sendMessage()"
+                      @blur="_broadcastTyping(false)"/>
+                <button class="sp-send"
+                        :disabled="(!inputText.trim() && !stagedFile) || sending"
+                        @click="sendMessage()">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+                </button>
+            </div>
+          </div>
+        </template>
+
       </div> <!-- ✅ closes sp-input-row -->
     </div> <!-- ✅ closes sp-messages-wrap -->
   </template> <!-- ✅ closes x-if="threadId" -->
+
+  <!-- ── End Chat Confirmation Modal ── -->
+  <template x-if="showEndChatModal">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:50;display:flex;align-items:center;justify-content:center;border-radius:inherit;backdrop-filter:blur(2px);">
+      <div style="background:var(--bg-surface);border-radius:16px;padding:24px 20px;width:88%;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.35);border:1px solid var(--border);">
+
+        <!-- Icon -->
+        <div style="text-align:center;margin-bottom:14px;">
+          <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:rgba(239,68,68,.12);margin-bottom:8px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </div>
+          <div style="font-size:.95rem;font-weight:700;color:var(--txt);margin-bottom:6px;">End Chat Session?</div>
+          <div style="font-size:.78rem;color:var(--txt-3);line-height:1.5;">How would you like to close this conversation?</div>
+        </div>
+
+        <!-- Resolution buttons -->
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;">
+          <button @click="confirmEndChat('resolved')"
+                  style="width:100%;padding:10px;background:#22c55e;border:none;border-radius:10px;color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity .15s;"
+                  onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            Mark as Resolved
+          </button>
+          <button @click="confirmEndChat('pending')"
+                  style="width:100%;padding:10px;background:#f59e0b;border:none;border-radius:10px;color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity .15s;"
+                  onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="M12 8v4M12 16h.01"/></svg>
+            Mark as Pending
+          </button>
+        </div>
+
+        <!-- Cancel -->
+        <button @click="showEndChatModal = false"
+                style="width:100%;padding:9px;background:transparent;border:1px solid var(--border);border-radius:10px;color:var(--txt-3);font-size:.8rem;font-weight:600;cursor:pointer;transition:opacity .15s;"
+                onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </template>
+
 </div> <!-- ✅ closes support panel -->
 
 <!-- Toast notification (login required etc.) -->
@@ -1302,7 +1439,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=41"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=31"></script>
+<script src="{{ asset('js/support.js') }}?v=36"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

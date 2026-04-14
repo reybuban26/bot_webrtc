@@ -69,24 +69,11 @@ class SupportController extends Controller
             $userId = $auth->id;
         }
 
-        // Check if thread already exists before creating
-        $threadExists = SupportThread::where('user_id', $userId)->exists();
-
         $thread = SupportThread::forUser($userId);
 
-        // If thread was just created (no previous messages), send AI welcome message
-        if (!$threadExists && $thread->messages()->doesntExist()) {
-            $welcomeMessage = SupportMessage::createSystem(
-                $thread->id,
-                '🤖 AI Assistant is here to help. What can I assist you with?'
-            );
-            broadcast(new SystemMessageCreated(
-                threadId:  $thread->id,
-                messageId: $welcomeMessage->id,
-                body:      $welcomeMessage->body,
-                createdAt: $welcomeMessage->created_at->toISOString(),
-            ));
-        }
+        // NOTE: Welcome message is rendered client-side only — we don't persist
+        // it in the DB so empty threads (no real conversation) don't appear as
+        // phantom rows in the admin Filament panel.
 
         return response()->json([
             'thread_id'         => $thread->id,
@@ -123,6 +110,9 @@ class SupportController extends Controller
                 'updated_at'        => $t->updated_at?->toISOString(),
                 'chat_status'       => $t->chat_status,
                 'assigned_admin_id' => $t->assigned_admin_id,
+                'resolution_status'    => $t->resolution_status,
+                'is_resolved_by_user' => $t->is_resolved_by_user,
+                'feedback_rating'     => $t->feedback_rating,
             ]);
 
         return response()->json(['threads' => $threads]);
@@ -209,19 +199,18 @@ class SupportController extends Controller
 
         // ── Session control: re-open ended thread ──
         if ($request->user()->role !== 'admin' && $thread->chat_status === 'ended') {
-            // Re-open the thread — reset status to waiting and send new welcome message
-            $thread->update(['chat_status' => 'waiting', 'assigned_admin_id' => null, 'requires_escalation' => false, 'queue_position' => null]);
-
-            $welcomeMsg = SupportMessage::createSystem(
-                $thread->id,
-                '🤖 AI Assistant is here to help. What can I assist you with?'
-            );
-            broadcast(new SystemMessageCreated(
-                threadId:  $thread->id,
-                messageId: $welcomeMsg->id,
-                body:      $welcomeMsg->body,
-                createdAt: $welcomeMsg->created_at->toISOString(),
-            ));
+            // Re-open the thread — reset status to waiting.
+            // Welcome message is rendered client-side only (not persisted).
+            $thread->update([
+                'chat_status'         => 'waiting',
+                'assigned_admin_id'   => null,
+                'requires_escalation' => false,
+                'queue_position'      => null,
+                'resolution_status'   => null,
+                'metadata'            => array_merge($thread->metadata ?? [], [
+                    'session_started_at' => now()->toISOString(),
+                ]),
+            ]);
         }
 
         $metadata = null;
@@ -407,18 +396,33 @@ class SupportController extends Controller
     }
 
     /**
-     * Build conversation history for AI from thread messages
+     * Build conversation history for AI from thread messages.
+     * Only includes messages from the current session (after last welcome message),
+     * so old conversations don't bleed into a restarted session.
      */
     private function buildConversationHistory(SupportThread $thread): array
     {
-        return $thread->messages()
-            ->whereIn('type', ['text', 'ai_response'])
+        // Session boundary is stored in thread metadata whenever the thread is
+        // (re)opened into 'waiting'. This prevents old conversations from
+        // bleeding into a restarted session's AI context.
+        $sessionStart = $thread->metadata['session_started_at'] ?? null;
+
+        $query = $thread->messages()
+            ->with('sender')
+            ->whereIn('type', ['text', 'ai_response']);
+
+        if ($sessionStart) {
+            $query->where('created_at', '>=', $sessionStart);
+        }
+
+        return $query
             ->latest()
             ->limit(10)
             ->get()
             ->reverse()
             ->map(fn($msg) => [
-                'role' => $msg->type === 'ai_response' ? 'assistant' : 'user',
+                // Admin messages = 'assistant' role (same as AI), user messages = 'user'
+                'role'    => ($msg->type === 'ai_response' || $msg->sender?->role === 'admin') ? 'assistant' : 'user',
                 'content' => $msg->body,
             ])
             ->values()
@@ -572,7 +576,16 @@ class SupportController extends Controller
             return response()->json(['error' => 'Forbidden.'], 403);
         }
 
-        $thread->update(['chat_status' => 'ended', 'assigned_admin_id' => null]);
+        $resolutionStatus = $request->input('resolution_status', 'resolved');
+        if (!in_array($resolutionStatus, ['resolved', 'pending'])) {
+            $resolutionStatus = 'resolved';
+        }
+
+        $thread->update([
+            'chat_status'       => 'ended',
+            'assigned_admin_id' => null,
+            'resolution_status' => $resolutionStatus,
+        ]);
 
         $sysMsg = SupportMessage::createSystem(
             $thread->id,
@@ -614,21 +627,14 @@ class SupportController extends Controller
             'requires_escalation' => false,
             'queue_position'      => null,
             'ai_confidence'       => null,
+            'resolution_status'   => null,
+            'metadata'            => array_merge($thread->metadata ?? [], [
+                'session_started_at' => now()->toISOString(),
+            ]),
         ]);
 
-        $welcomeMsg = SupportMessage::createSystem(
-            $thread->id,
-            '🤖 AI Assistant is here to help. What can I assist you with?'
-        );
-
-        broadcast(new SystemMessageCreated(
-            threadId:  $thread->id,
-            messageId: $welcomeMsg->id,
-            body:      $welcomeMsg->body,
-            createdAt: $welcomeMsg->created_at->toISOString(),
-        ));
-
-        return response()->json(['success' => true, 'message_id' => $welcomeMsg->id]);
+        // Welcome message is rendered client-side only (not persisted).
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -701,22 +707,22 @@ class SupportController extends Controller
         $this->authorizeThread($request->user(), $thread);
 
         $request->validate([
-            'rating' => 'required|integer|between:1,5',
-            'feedback' => 'nullable|string|max:1000',
+            'is_resolved_by_user' => 'required|boolean',
+            'feedback_rating'     => 'nullable|integer|between:1,5',
+            'feedback_comment'    => 'nullable|string|max:1000',
         ]);
 
-        // Update thread metadata with rating
-        $metadata = $thread->metadata ?? [];
-        $metadata['rating'] = $request->integer('rating');
-        $metadata['feedback'] = $request->string('feedback', '');
-        $metadata['rated_at'] = now()->toISOString();
+        $thread->update([
+            'is_resolved_by_user' => $request->boolean('is_resolved_by_user'),
+            'feedback_rating'     => $request->input('feedback_rating'),
+            'feedback_comment'    => $request->input('feedback_comment'),
+        ]);
 
-        $thread->update(['metadata' => $metadata]);
-
-        Log::info('[Support] Chat rated', [
-            'thread_id' => $thread->id,
-            'rating' => $request->integer('rating'),
-            'has_feedback' => $request->filled('feedback'),
+        Log::info('[Support] Chat feedback submitted', [
+            'thread_id'           => $thread->id,
+            'is_resolved_by_user' => $request->boolean('is_resolved_by_user'),
+            'feedback_rating'     => $request->input('feedback_rating'),
+            'has_comment'         => $request->filled('feedback_comment'),
         ]);
 
         return response()->json(['success' => true]);

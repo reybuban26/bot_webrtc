@@ -50,12 +50,16 @@ window.supportApp = function () {
         _e2eeReady: false,          // true after key pair is loaded/generated
         _allPartiesHaveKeys: false, // true only when BOTH user and admin have key slots
 
-        // ── Post-chat Rating State ─────────────────────────────
+        // ── Post-chat Feedback State ───────────────────────────
         postChatRating: {
-            rating: null,
-            feedback: '',
-            submitted: false,
+            isResolved:  null,   // null = not answered, true = Yes, false = No
+            rating:      null,   // 1–5 stars (optional)
+            feedback:    '',     // optional comment
+            submitted:   false,
         },
+
+        // ── End Chat Modal State ────────────────────────────────
+        showEndChatModal: false,
 
         // ── Init ──────────────────────────────────────────────────
         async init() {
@@ -198,14 +202,11 @@ window.supportApp = function () {
                 const r  = await fetch(url, { headers: { 'X-CSRF-TOKEN': this._csrf() } });
                 const d  = await r.json();
 
-                // No thread yet — eagerly create it so welcome message appears immediately
-                if (! d.thread_id && this.userRole !== 'admin') {
-                    const created = await this._ensureThread();
-                    if (!created) return;
-                    // _ensureThread sets threadId, starts poll, subscribes Reverb — fetch messages now
-                    await this.fetchMessages(false);
-                    return;
-                } else if (! d.thread_id) {
+                // No thread yet — stay lazy: thread will be created on first send.
+                // The client-side welcome bubble is rendered purely in the UI so
+                // empty threads never get persisted and never appear as phantom
+                // rows in the admin Filament panel.
+                if (! d.thread_id) {
                     this.threadId = null;
                     return;
                 }
@@ -260,7 +261,10 @@ window.supportApp = function () {
                 this.assignedAdminId = d.assigned_admin_id || null;
 
                 await this._initThreadKey(d.thread_id, null);
-                this._startPoll();
+                // NOTE: _startPoll() is intentionally NOT called here.
+                // Callers must call fetchMessages(false) first to set lastTs,
+                // then call _startPoll() — this prevents the race where the poll
+                // fires with lastTs=null and over-counts messages as unread.
                 this._subscribeReverb(d.thread_id);
                 return true;
             } catch (e) {
@@ -433,9 +437,17 @@ window.supportApp = function () {
                     if (this.open && d.messages.length > 0) {
                         await this.markAsSeen(this.threadId);
                     } else if (incremental && d.messages.length > 0) {
-                        // Only count newly arrived messages (polling), not the initial load
-                        this.unreadCount += d.messages.length;
-                        window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
+                        // For user badge: only count real admin messages
+                        // System messages (welcome, "connecting...") and AI responses
+                        // should never trigger the unread badge
+                        const notifiable = this.userRole === 'admin'
+                            ? d.messages.filter(m => m.role === 'user')
+                            : d.messages.filter(m => m.role === 'admin');
+
+                        if (notifiable.length > 0) {
+                            this.unreadCount += notifiable.length;
+                            window.dispatchEvent(new CustomEvent('support-unread', { detail: this.unreadCount }));
+                        }
                     }
                 }
             } catch (e) {
@@ -449,7 +461,8 @@ window.supportApp = function () {
             if ((!body && !this.stagedFile) || this.sending) return;
 
             // Create thread on first send if it doesn't exist yet
-            if (!this.threadId && !await this._ensureThread()) return;
+            const isNewThread = !this.threadId;
+            if (isNewThread && !await this._ensureThread()) return;
 
             this._broadcastTyping(false);
 
@@ -487,6 +500,8 @@ window.supportApp = function () {
                 });
 
                 await this.fetchMessages(true);
+                // Start poll after first fetch so lastTs is set before timer fires
+                if (isNewThread) this._startPoll();
             } catch (e) {
                 console.error('[Support] Send failed', e.message);
             } finally {
@@ -494,19 +509,29 @@ window.supportApp = function () {
             }
         },
 
-        // ── End Chat (admin only) ─────────────────────────────────
-        async endChat() {
+        // ── End Chat (admin only) — opens the confirmation modal ──
+        endChat() {
             if (!this.threadId || this.userRole !== 'admin') return;
-            if (!confirm('End this support session? The user will be notified.')) return;
+            this.showEndChatModal = true;
+        },
+
+        // ── Confirm End Chat — called from modal buttons ───────────
+        async confirmEndChat(resolutionStatus = 'resolved') {
+            this.showEndChatModal = false;
+            if (!this.threadId) return;
 
             try {
                 await fetch(`/api/support/thread/${this.threadId}/end-chat`, {
                     method:  'POST',
-                    headers: { 'X-CSRF-TOKEN': this._csrf() },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ resolution_status: resolutionStatus }),
                 });
                 this.chatStatus = 'ended';
 
-                // After ending, reset admin view back to thread list after brief delay
+                // After 2s: reset admin view back to thread list
                 setTimeout(() => {
                     this.threadId        = null;
                     this.messages        = [];
@@ -517,9 +542,9 @@ window.supportApp = function () {
                     this.assignedAdminId = null;
                     this._clearPoll();
                     this.open = false;
-                }, 1500);
+                }, 2000);
             } catch (e) {
-                console.error('[Support] endChat failed', e);
+                console.error('[Support] confirmEndChat failed', e);
             }
         },
 
@@ -567,7 +592,7 @@ window.supportApp = function () {
 
         // ── Post-Chat Rating ──────────────────────────────────────
         async submitRating() {
-            if (!this.threadId || !this.postChatRating.rating) return;
+            if (!this.threadId || this.postChatRating.isResolved === null) return;
 
             try {
                 const response = await fetch(`/api/support/thread/${this.threadId}/rate-chat`, {
@@ -577,8 +602,9 @@ window.supportApp = function () {
                         'X-CSRF-TOKEN': this._csrf(),
                     },
                     body: JSON.stringify({
-                        rating: this.postChatRating.rating,
-                        feedback: this.postChatRating.feedback,
+                        is_resolved_by_user: this.postChatRating.isResolved,
+                        feedback_rating:     this.postChatRating.rating,
+                        feedback_comment:    this.postChatRating.feedback || null,
                     }),
                 });
 
@@ -590,14 +616,15 @@ window.supportApp = function () {
                     }, 2000);
                 }
             } catch (e) {
-                console.error('[Support] Failed to submit rating', e);
+                console.error('[Support] Failed to submit feedback', e);
             }
         },
 
         async _restartChat() {
             if (!this.threadId) return;
             try {
-                // Backend: reset thread to 'waiting' and create new welcome message
+                // Backend: reset thread status to 'waiting' + update session boundary.
+                // No welcome message is persisted — it's shown client-side only.
                 await fetch(`/api/support/thread/${this.threadId}/restart`, {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': this._csrf() },
@@ -606,12 +633,13 @@ window.supportApp = function () {
                 console.warn('[Support] restartThread failed', e);
             }
             // Reset local state to fresh
-            this.postChatRating = { rating: null, feedback: '', submitted: false };
+            this.postChatRating = { isResolved: null, rating: null, feedback: '', submitted: false };
             this.messages       = [];
-            this.lastTs         = null;
+            // Set lastTs to RIGHT NOW so the running poll's next tick only fetches
+            // messages created AFTER this restart point — old session messages can't
+            // creep back in via the incremental poll.
+            this.lastTs         = new Date().toISOString();
             this.chatStatus     = 'waiting';
-            // Fetch fresh messages (just the new welcome message)
-            await this.fetchMessages(false);
             this._scrollToBottom();
         },
 

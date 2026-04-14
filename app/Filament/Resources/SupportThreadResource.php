@@ -43,6 +43,79 @@ class SupportThreadResource extends Resource
                 ->format('M j, Y h:i A')
                 ->disabled(),
 
+            Placeholder::make('status_info')
+                ->label('Status')
+                ->columnSpanFull()
+                ->content(function ($record) {
+                    if (!$record) return '';
+
+                    $status = $record->chat_status ?? 'unknown';
+                    $statusColors = [
+                        'waiting'        => '#f59e0b',
+                        'ai_active'      => '#6366f1',
+                        'escalating'     => '#f97316',
+                        'active'         => '#22c55e',
+                        'ended'          => '#6b7280',
+                    ];
+                    $color = $statusColors[$status] ?? '#6b7280';
+
+                    $resolution = $record->resolution_status ?? null;
+                    $resolutionBadge = '';
+                    if ($resolution === 'resolved') {
+                        $resolutionBadge = '<span style="background:#22c55e;color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;margin-left:8px;">✔ Resolved</span>';
+                    } elseif ($resolution === 'pending') {
+                        $resolutionBadge = '<span style="background:#f59e0b;color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;margin-left:8px;">⏳ Pending</span>';
+                    }
+
+                    $html = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">';
+                    $html .= "<span style='background:{$color};color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;'>" . strtoupper($status) . "</span>";
+                    $html .= $resolutionBadge;
+                    $html .= '</div>';
+
+                    return new HtmlString($html);
+                }),
+
+            Placeholder::make('feedback_info')
+                ->label('Customer Feedback')
+                ->columnSpanFull()
+                ->content(function ($record) {
+                    if (!$record) return '';
+
+                    $isResolved = $record->is_resolved_by_user;
+                    $rating = $record->feedback_rating;
+                    $comment = $record->feedback_comment;
+
+                    if ($isResolved === null && !$rating && !$comment) {
+                        return new HtmlString('<span style="color:#6b7280;font-size:13px;">No feedback submitted yet.</span>');
+                    }
+
+                    $html = '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;background:rgba(100,116,139,.07);border-radius:10px;border:1px solid rgba(100,116,139,.15);">';
+
+                    // Resolved
+                    if ($isResolved !== null) {
+                        if ($isResolved) {
+                            $html .= '<div style="font-size:13px;">✅ <strong>Issue resolved:</strong> <span style="color:#22c55e;font-weight:700;">Yes</span></div>';
+                        } else {
+                            $html .= '<div style="font-size:13px;">❌ <strong>Issue resolved:</strong> <span style="color:#ef4444;font-weight:700;">No</span></div>';
+                        }
+                    }
+
+                    // Star rating
+                    if ($rating) {
+                        $stars = str_repeat('⭐', $rating) . str_repeat('☆', 5 - $rating);
+                        $html .= "<div style='font-size:13px;'><strong>Rating:</strong> {$stars} ({$rating}/5)</div>";
+                    }
+
+                    // Comment
+                    if ($comment) {
+                        $escapedComment = htmlspecialchars($comment);
+                        $html .= "<div style='font-size:13px;'><strong>Comment:</strong> <span style='color:#9ca3af;font-style:italic;'>\"{$escapedComment}\"</span></div>";
+                    }
+
+                    $html .= '</div>';
+                    return new HtmlString($html);
+                }),
+
             Placeholder::make('conversation_history')
                 ->label('Conversation History')
                 ->columnSpanFull()
@@ -109,6 +182,29 @@ class SupportThreadResource extends Resource
                     ->counts('messages')
                     ->badge()
                     ->color('info'),
+                TextColumn::make('chat_status')
+                    ->label('Status')
+                    ->badge()
+                    ->color(fn ($state) => match ($state) {
+                        'active'     => 'success',
+                        'escalating' => 'warning',
+                        'ended'      => 'gray',
+                        'ai_active'  => 'info',
+                        default      => 'secondary',
+                    }),
+                TextColumn::make('resolution_status')
+                    ->label('Resolution')
+                    ->badge()
+                    ->color(fn ($state) => match ($state) {
+                        'resolved' => 'success',
+                        'pending'  => 'warning',
+                        default    => 'gray',
+                    })
+                    ->placeholder('—'),
+                TextColumn::make('feedback_rating')
+                    ->label('Rating')
+                    ->formatStateUsing(fn ($state) => $state ? str_repeat('⭐', $state) : '—')
+                    ->placeholder('—'),
                 TextColumn::make('updated_at')
                     ->label('Last Activity')
                     ->dateTime('M j, Y h:i A', 'Asia/Manila')

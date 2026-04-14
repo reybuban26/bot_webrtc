@@ -19,13 +19,19 @@ class SupportThread extends Model
         'requires_escalation',
         'queue_position',
         'metadata',
+        'resolution_status',
+        'is_resolved_by_user',
+        'feedback_rating',
+        'feedback_comment',
     ];
 
     protected $casts = [
-        'encrypted_keys' => 'array',
-        'ai_confidence' => 'decimal:2',
+        'encrypted_keys'      => 'array',
+        'ai_confidence'       => 'decimal:2',
         'requires_escalation' => 'boolean',
-        'metadata' => 'array',
+        'metadata'            => 'array',
+        'is_resolved_by_user' => 'boolean',
+        'feedback_rating'     => 'integer',
     ];
 
     public function user(): BelongsTo
