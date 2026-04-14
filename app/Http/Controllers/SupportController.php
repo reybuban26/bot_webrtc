@@ -71,6 +71,19 @@ class SupportController extends Controller
 
         $thread = SupportThread::forUser($userId);
 
+        // Stamp a session boundary for brand-new threads so the user-side
+        // message filter has an anchor from the start. (forUser() uses
+        // firstOrCreate, so we only stamp this once per thread.)
+        if (empty($thread->metadata['session_started_at'] ?? null)) {
+            $thread->update([
+                'metadata' => array_merge($thread->metadata ?? [], [
+                    // Store as MySQL-compatible datetime string (not ISO-8601) so the
+                    // session-boundary filter in messages() compares correctly.
+                    'session_started_at' => now()->toDateTimeString(),
+                ]),
+            ]);
+        }
+
         // NOTE: Welcome message is rendered client-side only — we don't persist
         // it in the DB so empty threads (no real conversation) don't appear as
         // phantom rows in the admin Filament panel.
@@ -132,6 +145,18 @@ class SupportController extends Controller
         $query = $thread->messages()->with('sender');
         if ($since) {
             $query->where('created_at', '>', $since);
+        }
+
+        // ── Session boundary filter (USER side only) ──
+        // Users should only ever see messages from the *current* session.
+        // When the thread is restarted, `metadata.session_started_at` is updated,
+        // and any messages from earlier sessions stay hidden on the user side.
+        // Admins always get the full history so they have full context.
+        if ($request->user()->role !== 'admin') {
+            $sessionStart = $thread->metadata['session_started_at'] ?? null;
+            if ($sessionStart) {
+                $query->where('created_at', '>=', $sessionStart);
+            }
         }
 
         $messages = $query->orderBy('created_at')->get()->map(function ($m) {
@@ -201,14 +226,14 @@ class SupportController extends Controller
         if ($request->user()->role !== 'admin' && $thread->chat_status === 'ended') {
             // Re-open the thread — reset status to waiting.
             // Welcome message is rendered client-side only (not persisted).
+            // resolution_status/feedback intentionally preserved as historical record.
             $thread->update([
                 'chat_status'         => 'waiting',
                 'assigned_admin_id'   => null,
                 'requires_escalation' => false,
                 'queue_position'      => null,
-                'resolution_status'   => null,
                 'metadata'            => array_merge($thread->metadata ?? [], [
-                    'session_started_at' => now()->toISOString(),
+                    'session_started_at' => now()->toDateTimeString(),
                 ]),
             ]);
         }
@@ -581,10 +606,17 @@ class SupportController extends Controller
             $resolutionStatus = 'resolved';
         }
 
+        // Stamp a fresh session boundary so the user-side message filter
+        // hides everything from the just-ended conversation. The "Chat session
+        // ended" system message is created right after, so its timestamp will
+        // be >= session_started_at and stay visible in the new window.
         $thread->update([
             'chat_status'       => 'ended',
             'assigned_admin_id' => null,
             'resolution_status' => $resolutionStatus,
+            'metadata'          => array_merge($thread->metadata ?? [], [
+                'session_started_at' => now()->toDateTimeString(),
+            ]),
         ]);
 
         $sysMsg = SupportMessage::createSystem(
@@ -627,9 +659,13 @@ class SupportController extends Controller
             'requires_escalation' => false,
             'queue_position'      => null,
             'ai_confidence'       => null,
-            'resolution_status'   => null,
+            // NOTE: resolution_status and feedback fields are intentionally NOT
+            // reset here. They represent the *last recorded resolution* and stay
+            // as a historical record until the admin ends a new session and
+            // overwrites them. Filament still surfaces the correct state for the
+            // completed session the admin just closed.
             'metadata'            => array_merge($thread->metadata ?? [], [
-                'session_started_at' => now()->toISOString(),
+                'session_started_at' => now()->toDateTimeString(),
             ]),
         ]);
 

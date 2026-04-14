@@ -76,6 +76,22 @@ window.supportApp = function () {
                 }
             });
 
+            // Watch chat status transitions involving 'ended' — when the chat
+            // ends OR re-opens, the backend stamps a new session_started_at so
+            // any stale messages from the previous window must be flushed from
+            // the local cache. Without this, the user keeps seeing old admin
+            // messages even though the backend has already returned them to AI.
+            this.$watch('chatStatus', (newVal, oldVal) => {
+                if (this.userRole === 'admin') return;
+                if (!this.threadId) return;
+                if (newVal === oldVal) return;
+                if (newVal === 'ended' || oldVal === 'ended') {
+                    this.messages = [];
+                    this.lastTs   = null;
+                    this.fetchMessages(false);
+                }
+            });
+
             // ── Bootstrap E2EE key pair ───────────────────────────
             await this._initE2EE();
 

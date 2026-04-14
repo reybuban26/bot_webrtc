@@ -49,6 +49,16 @@ class SupportThreadResource extends Resource
                 ->content(function ($record) {
                     if (!$record) return '';
 
+                    // ── Resolution (primary: what the admin marked the last session as) ──
+                    $resolution = $record->resolution_status ?? null;
+                    $resolutionBadge = '<span style="background:#6b7280;color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;">No resolution yet</span>';
+                    if ($resolution === 'resolved') {
+                        $resolutionBadge = '<span style="background:#22c55e;color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;">✔ RESOLVED</span>';
+                    } elseif ($resolution === 'pending') {
+                        $resolutionBadge = '<span style="background:#f59e0b;color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;">⏳ PENDING</span>';
+                    }
+
+                    // ── Current chat state (secondary: where the thread is RIGHT NOW) ──
                     $status = $record->chat_status ?? 'unknown';
                     $statusColors = [
                         'waiting'        => '#f59e0b',
@@ -58,18 +68,17 @@ class SupportThreadResource extends Resource
                         'ended'          => '#6b7280',
                     ];
                     $color = $statusColors[$status] ?? '#6b7280';
+                    $currentBadge = "<span style='background:{$color};color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;'>" . strtoupper($status) . "</span>";
 
-                    $resolution = $record->resolution_status ?? null;
-                    $resolutionBadge = '';
-                    if ($resolution === 'resolved') {
-                        $resolutionBadge = '<span style="background:#22c55e;color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;margin-left:8px;">✔ Resolved</span>';
-                    } elseif ($resolution === 'pending') {
-                        $resolutionBadge = '<span style="background:#f59e0b;color:#fff;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;margin-left:8px;">⏳ Pending</span>';
-                    }
-
-                    $html = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">';
-                    $html .= "<span style='background:{$color};color:#fff;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:700;'>" . strtoupper($status) . "</span>";
+                    $html  = '<div style="display:flex;flex-direction:column;gap:8px;">';
+                    $html .= '<div style="display:flex;align-items:center;gap:10px;">';
+                    $html .= '<span style="font-size:12px;font-weight:600;color:#9ca3af;min-width:120px;">Last resolution:</span>';
                     $html .= $resolutionBadge;
+                    $html .= '</div>';
+                    $html .= '<div style="display:flex;align-items:center;gap:10px;">';
+                    $html .= '<span style="font-size:12px;font-weight:600;color:#9ca3af;min-width:120px;">Current state:</span>';
+                    $html .= $currentBadge;
+                    $html .= '</div>';
                     $html .= '</div>';
 
                     return new HtmlString($html);
@@ -182,8 +191,17 @@ class SupportThreadResource extends Resource
                     ->counts('messages')
                     ->badge()
                     ->color('info'),
+                TextColumn::make('resolution_status')
+                    ->label('Resolution')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state ? strtoupper($state) : 'NO RESOLUTION')
+                    ->color(fn ($state) => match ($state) {
+                        'resolved' => 'success',
+                        'pending'  => 'warning',
+                        default    => 'gray',
+                    }),
                 TextColumn::make('chat_status')
-                    ->label('Status')
+                    ->label('Current State')
                     ->badge()
                     ->color(fn ($state) => match ($state) {
                         'active'     => 'success',
@@ -191,16 +209,8 @@ class SupportThreadResource extends Resource
                         'ended'      => 'gray',
                         'ai_active'  => 'info',
                         default      => 'secondary',
-                    }),
-                TextColumn::make('resolution_status')
-                    ->label('Resolution')
-                    ->badge()
-                    ->color(fn ($state) => match ($state) {
-                        'resolved' => 'success',
-                        'pending'  => 'warning',
-                        default    => 'gray',
                     })
-                    ->placeholder('—'),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('feedback_rating')
                     ->label('Rating')
                     ->formatStateUsing(fn ($state) => $state ? str_repeat('⭐', $state) : '—')
