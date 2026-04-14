@@ -136,32 +136,44 @@ class AiResponseService
     }
 
     /**
-     * Calculate confidence score based on response quality heuristics
+     * Calculate confidence score based on response quality heuristics.
+     *
+     * Key principle: response LENGTH does NOT determine confidence.
+     * A short "Hi! How can I help you?" is just as confident as a long reply.
+     * Only explicit uncertainty/inability markers should reduce confidence.
      */
     private function calculateConfidence(string $response, string $userMessage): float
     {
-        // Heuristics:
-        // - Very short response (< 50 chars) = low confidence (0.3)
-        // - Medium response (50-200 chars) = medium confidence (0.7)
-        // - Long, detailed response (> 200 chars) = high confidence (0.85)
-        // - Presence of "sorry", "don't know", "can't help" = reduce by 0.2
+        // Start high — assume the AI handled it unless it signals otherwise.
+        $confidence = 0.85;
 
-        $length = strlen($response);
-        $confidence = 0.5; // baseline
-
-        if ($length < 50) {
-            $confidence = 0.3;
-        } elseif ($length > 200) {
-            $confidence = 0.85;
-        } else {
-            $confidence = 0.7;
+        // Empty response = something went wrong
+        if (trim($response) === '') {
+            return 0.1;
         }
 
-        // Reduce confidence if response contains uncertainty markers
-        $uncertaintyMarkers = ['sorry', "don't know", "can't help", 'unclear', 'not sure', 'i\'m unable', 'unable to', 'hindi ako sure'];
+        // Reduce confidence only when the AI explicitly signals it cannot help
+        $uncertaintyMarkers = [
+            "don't know",
+            "cannot help",
+            "can't help",
+            "unable to help",
+            "i'm unable",
+            "not sure",
+            "not certain",
+            "unclear",
+            "beyond my knowledge",
+            "outside my expertise",
+            "i cannot assist",
+            "i can't assist",
+            "hindi ko alam",
+            "hindi ako sure",
+            "hindi ko masagot",
+        ];
+
         foreach ($uncertaintyMarkers as $marker) {
             if (stripos($response, $marker) !== false) {
-                $confidence -= 0.2;
+                $confidence -= 0.25;
             }
         }
 
