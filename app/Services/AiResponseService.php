@@ -60,11 +60,15 @@ class AiResponseService
 
         try {
             $payload = [
-                'model' => self::CHAT_MODEL,
-                'messages' => $messages,
-                'max_tokens' => (int) config('services.qwen.max_tokens', 500),
-                'temperature' => (float) config('services.qwen.temperature', 0.7),
-                'stream' => false,
+                'model'           => self::CHAT_MODEL,
+                'messages'        => $messages,
+                'max_tokens'      => (int) config('services.qwen.max_tokens', 500),
+                'temperature'     => (float) config('services.qwen.temperature', 0.7),
+                'stream'          => false,
+                // Disable chain-of-thought thinking mode — it adds 3-8 s of latency
+                // and is not needed for support chat. Without this, qwen3-series models
+                // prefix every reply with a <think>…</think> block.
+                'enable_thinking' => false,
             ];
 
             $response = Http::withHeaders([
@@ -73,7 +77,11 @@ class AiResponseService
             ])->timeout(30)->post(self::CHAT_ENDPOINT, $payload);
 
             if ($response->successful()) {
-                $responseText = $response->json('choices.0.message.content') ?? '';
+                $raw = $response->json('choices.0.message.content') ?? '';
+
+                // Strip any residual <think>…</think> blocks in case the model
+                // ignores enable_thinking=false (some API versions do).
+                $responseText = trim(preg_replace('/<think>.*?<\/think>/si', '', $raw));
                 $confidence = $this->calculateConfidence($responseText, $userMessage);
 
                 Log::info('[Support AI] Generated response', [

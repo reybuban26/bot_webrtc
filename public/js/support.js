@@ -487,6 +487,33 @@ window.supportApp = function () {
             const fileToSend = this.stagedFile;
             this.stagedFile  = null;
 
+            // Pause the background poll while sending so it can't race with the
+            // optimistic bubble and create a duplicate before fetchMessages(false)
+            // replaces everything with the authoritative server list.
+            const wasPolling = !!this._pollTimer;
+            if (wasPolling) { clearInterval(this._pollTimer); this._pollTimer = null; }
+
+            // ── Optimistic update ────────────────────────────────────────────
+            // Show the user's own message instantly so the UI isn't frozen while
+            // the backend generates the AI reply (typically 3–9 s).
+            // We'll remove it after the server responds and do a clean re-fetch
+            // so messages appear in the correct server-authoritative order.
+            const optimisticId = 'opt-' + Date.now();
+            if (body && !fileToSend) {
+                this.messages.push({
+                    id:           optimisticId,
+                    sender_id:    this.userId,
+                    sender:       'You',
+                    role:         'user',
+                    body:         body,
+                    type:         'text',
+                    metadata:     null,
+                    is_encrypted: false,
+                    created_at:   new Date().toISOString(),
+                });
+                this._scrollToBottom();
+            }
+
             try {
                 const formData = new FormData();
 
@@ -515,11 +542,21 @@ window.supportApp = function () {
                     body:    formData,
                 });
 
-                await this.fetchMessages(true);
-                // Start poll after first fetch so lastTs is set before timer fires
-                if (isNewThread) this._startPoll();
+                // Full re-fetch so the real messages come back in correct
+                // server-side (created_at) order. fetchMessages(false) replaces
+                // this.messages entirely — no need to clear first, which avoids
+                // the brief empty-state flash that shows the welcome bubble.
+                await this.fetchMessages(false);
+
+                // Resume (or start) poll now that lastTs is anchored to the
+                // latest server message, so no duplicates can slip in.
+                this._startPoll();
             } catch (e) {
+                // Remove optimistic bubble on error so the user can retry cleanly
+                this.messages = this.messages.filter(m => m.id !== optimisticId);
                 console.error('[Support] Send failed', e.message);
+                // Resume poll even on error
+                if (wasPolling || isNewThread) this._startPoll();
             } finally {
                 this.sending = false;
             }
