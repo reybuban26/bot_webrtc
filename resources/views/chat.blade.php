@@ -27,7 +27,7 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=11"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=19"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
@@ -216,21 +216,54 @@
   .sp-msg-spacer { flex: 1; }
 
   /* Message groups */
-  .sp-msg-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+  .sp-msg-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; width: 100%; }
   .sp-msg-group.own { align-items: flex-end; }
   .sp-msg-group.other { align-items: flex-start; }
+
+  /* Avatar + content row (received messages) */
+  .sp-msg-with-avatar {
+    display: flex; flex-direction: row; align-items: flex-start; gap: 8px; width: 100%;
+  }
+  .sp-avatar-sm {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .78rem; font-weight: 700;
+    flex-shrink: 0; margin-top: 2px;
+    text-transform: uppercase;
+  }
+  .sp-avatar-sm.ai { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
+  .sp-msg-content-col { display: flex; flex-direction: column; flex: 1; min-width: 0; max-width: 88%; }
+
+  /* Name + time inline row */
+  .sp-msg-meta-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 4px; padding-left: 2px;
+    border: none !important;
+    outline: none !important;
+  }
   .sp-sender-name {
-    font-size: .7rem; font-weight: 600;
-    color: var(--txt-3);
-    margin-bottom: 4px; padding-left: 4px;
+    font-size: .72rem; font-weight: 700;
+    color: var(--txt-2);
+    border: none !important;
+    outline: none !important;
+  }
+  .sp-msg-content-col {
+    border: none !important;
+    outline: none !important;
+  }
+  .sp-msg-with-avatar {
+    border: none !important;
+    outline: none !important;
   }
 
   /* Bubbles */
   .sp-bubble {
-    max-width: 82%;
+    width: fit-content;
+    max-width: 100%;
     padding: 9px 14px;
     font-size: .875rem; line-height: 1.5;
-    word-break: break-word; overflow-wrap: anywhere;
+    overflow-wrap: break-word; word-break: break-word;
     border-radius: 18px;
     transition: background .22s ease, color .22s ease;
   }
@@ -238,7 +271,7 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     color: var(--txt);
-    border-bottom-left-radius: 5px;
+    border-top-left-radius: 5px;
   }
   .sp-bubble.own {
     background: var(--user-grad);
@@ -338,15 +371,26 @@
 
   /* Timestamp */
   .sp-time {
-    font-size: .67rem; color: var(--txt-3);
-    margin-top: 3px; padding: 0 4px;
+    font-size: .63rem; color: var(--txt-3);
+    padding: 0 2px; flex-shrink: 0;
   }
-  .sp-msg-group.own .sp-time { text-align: right; }
+  .sp-msg-group.own > .sp-time { text-align: right; padding: 0 4px; margin-bottom: 3px; }
+
+  /* Message status (check mark for unseen) */
+  .sp-msg-status {
+    font-size: .65rem;
+    margin-left: 6px;
+    display: inline-flex;
+    align-items: center;
+    position: absolute;
+    left: -26px;
+    bottom: 2px;
+  }
 
   /* Input bar */
   .sp-input-row {
     display: flex; align-items: center; gap: 8px;
-    padding: 10px 12px 14px;
+    padding: 10px 14px 14px;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
     background: var(--bg-panel);
@@ -356,8 +400,8 @@
     flex: 1;
     background: var(--bg-surface);
     border: 1.5px solid var(--border);
-    border-radius: 22px;
-    padding: 10px 16px;
+    border-radius: 24px;
+    padding: 11px 18px;
     color: var(--txt);
     font-size: .875rem;
     font-family: inherit;
@@ -371,16 +415,16 @@
     box-shadow: 0 0 0 3px var(--accent-dim);
   }
   .sp-send {
-    background: var(--user-grad);
+    background: var(--accent);
     border: none; border-radius: 50%;
-    width: 40px; height: 40px; min-width: 40px;
+    width: 42px; height: 42px; min-width: 42px;
     color: #fff; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
-    transition: opacity .15s, transform .12s;
+    transition: background .15s, transform .12s, box-shadow .15s;
     box-shadow: 0 4px 12px rgba(91,94,244,.35);
   }
-  .sp-send:hover { opacity: .88; transform: scale(1.06); }
+  .sp-send:hover { background: var(--accent-2); transform: scale(1.06); box-shadow: 0 6px 18px rgba(91,94,244,.45); }
   .sp-send:disabled { opacity: .3; cursor: not-allowed; transform: none; box-shadow: none; }
 
   .session-title-shimmer {
@@ -474,19 +518,6 @@
     0%, 80%, 100% { transform: translateY(0); }
     40% { transform: translateY(-4px); }
   }
-
-  .sp-msg-status {
-    font-size: .65rem;
-    margin-left: 6px;
-    display: inline-flex;
-    align-items: center;
-    position: absolute;  /* ← DAGDAG */
-    left: -26px;        /* ← labas ng bubble */
-    bottom: 2px;
-  }
-  .sp-check { color: rgba(255,255,255,0.5); }
-  .sp-check.delivered { color: rgba(255,255,255,0.7); }
-  .sp-check.seen { color: #60d4f7; }
 
 </style>
 
@@ -846,8 +877,10 @@
         </div>
       </template>
 
-      <!-- ── Active/Connecting/Waiting State: phone-style portrait call ── -->
+      <!-- ── Active/Connecting/Waiting State ── -->
+      <!-- Desktop: flex row (video | chat). Mobile: just the stage (chat hidden via CSS). -->
       <template x-if="status !== 'idle'">
+        <div class="rtc-call-container">
         <div class="rtc-stage-wrap">
 
           <!-- Remote video: fills the full portrait stage -->
@@ -956,7 +989,69 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </button>
           </div>
-        </div>
+        </div><!-- /.rtc-stage-wrap -->
+
+        <!-- ── In-call Chat Panel (desktop right side) ────────── -->
+        <div class="rtc-chat-panel">
+
+          <!-- Header -->
+          <div class="rtc-chat-panel-header">
+            <div class="rtc-chat-panel-title">Chat</div>
+            <div class="rtc-chat-panel-name" x-text="callerName ? 'Call with ' + callerName : 'Support Chat'"></div>
+          </div>
+
+          <!-- Messages -->
+          <div class="rtc-chat-panel-messages" id="rtc-call-chat-messages">
+
+            <!-- Empty state -->
+            <template x-if="callChatMessages.length === 0">
+              <div style="text-align:center;padding:32px 16px;color:var(--txt-3);font-size:.8rem;">
+                No messages yet
+              </div>
+            </template>
+
+            <template x-for="msg in callChatMessages" :key="msg.id">
+              <div>
+                <!-- System message -->
+                <template x-if="msg.role === 'system' || msg.type === 'system' || msg.type === 'call_started' || msg.type === 'call_ended'">
+                  <div class="rtc-call-msg-wrap" style="align-items:center;">
+                    <div class="rtc-call-msg-bubble system" x-text="msg.body"></div>
+                  </div>
+                </template>
+
+                <!-- AI response -->
+                <template x-if="msg.type === 'ai_response'">
+                  <div class="rtc-call-msg-wrap other">
+                    <div class="rtc-call-msg-sender">🤖 AI Agent</div>
+                    <div class="rtc-call-msg-bubble other" x-text="msg.body"></div>
+                    <div class="rtc-call-msg-time" x-text="callFormatTime(msg.created_at)"></div>
+                  </div>
+                </template>
+
+                <!-- Regular text message -->
+                <template x-if="msg.type === 'text' || msg.type === 'file'">
+                  <div :class="['rtc-call-msg-wrap', msg.sender_id === callOwnUserId ? 'own' : 'other']">
+                    <template x-if="msg.sender_id !== callOwnUserId">
+                      <div class="rtc-call-msg-sender" x-text="msg.sender || 'User'"></div>
+                    </template>
+                    <div :class="['rtc-call-msg-bubble', msg.sender_id === callOwnUserId ? 'own' : 'other']"
+                         x-text="msg.is_encrypted ? '🔒 Encrypted message' : (msg.body || (msg.metadata ? '📎 Attachment' : ''))">
+                    </div>
+                    <div class="rtc-call-msg-time" x-text="callFormatTime(msg.created_at)"></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <!-- Note: No separate input here — use the Support Chat panel to send messages during the call -->
+          <div style="border-top:1px solid var(--border,rgba(0,0,0,.08));padding:10px 14px;flex-shrink:0;text-align:center;">
+            <span style="font-size:.72rem;color:var(--txt-3,#9ca3af);">💬 Use the support chat to send messages</span>
+          </div>
+
+        </div><!-- /.rtc-chat-panel -->
+
+        </div><!-- /.rtc-call-container -->
       </template>
     </div>
   </div>
@@ -1110,10 +1205,17 @@
              Shown whenever there are no "real" messages in the current session,
              so empty threads never need to exist in the database. -->
         <template x-if="userRole !== 'admin' && messages.length === 0 && chatStatus !== 'ended'">
-          <div style="display:flex;justify-content:flex-start;margin:10px 0">
-            <div class="sp-bubble received" style="max-width:85%">
-              <div style="font-size:.7rem;font-weight:600;color:#6366f1;margin-bottom:4px">🤖 AI Assistant</div>
-              <div>Hi! I'm the AI assistant. How can I help you today? If you'd like to speak with a human agent, just say "talk to agent".</div>
+          <div class="sp-msg-group other" style="margin-bottom:12px;">
+            <div class="sp-msg-with-avatar">
+              <div class="sp-avatar-sm ai" style="font-size:.85rem;">🤖</div>
+              <div class="sp-msg-content-col">
+                <div class="sp-msg-meta-row">
+                  <span class="sp-sender-name">AI Assistant</span>
+                </div>
+                <div class="sp-bubble other">
+                  <div>Hi! I'm the AI assistant. How can I help you today? If you'd like to speak with a human agent, just say "talk to agent".</div>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -1159,56 +1261,64 @@
 
             <!-- AI Response message -->
             <template x-if="msg.type === 'ai_response'">
-              <div :class="['sp-msg-group', 'other']">
-                <div class="sp-sender-name">🤖 AI Agent</div>
-                <div :class="['sp-bubble', 'other', 'ai-response']">
-                  <span x-text="msg.body"></span>
+              <div class="sp-msg-group other">
+                <div class="sp-msg-with-avatar">
+                  <div class="sp-avatar-sm ai" style="font-size:.85rem;">🤖</div>
+                  <div class="sp-msg-content-col">
+                    <div class="sp-msg-meta-row">
+                      <span class="sp-sender-name">AI Agent</span>
+                      <span class="sp-time" x-text="formatTime(msg.created_at)"></span>
+                    </div>
+                    <div class="sp-bubble other ai-response">
+                      <span x-text="msg.body"></span>
+                    </div>
+                  </div>
                 </div>
-                <div class="sp-time" x-text="formatTime(msg.created_at)"></div>
               </div>
             </template>
 
             <!-- Regular text message -->
             <template x-if="msg.type === 'text'">
               <div :class="['sp-msg-group', isOwnMessage(msg) ? 'own' : 'other']">
+
+                <!-- ── Received: avatar + name + time + bubble ── -->
                 <template x-if="!isOwnMessage(msg)">
-                  <div class="sp-sender-name" x-text="msg.sender"></div>
+                  <div class="sp-msg-with-avatar">
+                    <!-- Avatar circle -->
+                    <div class="sp-avatar-sm" x-text="(msg.sender || 'U').charAt(0).toUpperCase()"></div>
+                    <!-- Content column -->
+                    <div class="sp-msg-content-col">
+                      <div class="sp-msg-meta-row">
+                        <span class="sp-sender-name" x-text="msg.sender || 'Agent'"></span>
+                        <span class="sp-time" x-text="formatTime(msg.created_at)"></span>
+                      </div>
+                      <div class="sp-bubble other">
+                        <span x-text="msg.body"></span>
+                      </div>
+                    </div>
+                  </div>
                 </template>
-                <div :class="['sp-bubble', isOwnMessage(msg) ? 'own' : 'other']">
-                  <span x-text="msg.body"></span>
-                  <!-- ✅ Check marks para sa sariling messages (only show delivery status if admin is connected) -->
-                  <template x-if="isOwnMessage(msg)">
-                    <span class="sp-msg-status">
-                      <!-- Blue double check = seen by HUMAN ADMIN (only when actively connected) -->
-                      <template x-if="messagesSeen && chatStatus === 'active'">
-                        <span>
-                          <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
-                            <path d="M1 5l3 3L11 1" stroke="#60d4f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M5 5l3 3L15 1" stroke="#60d4f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </span>
-                      </template>
-                      <!-- Gray double check = admin is online/connected (but not necessarily seen this specific message) -->
-                      <template x-if="chatStatus === 'active' && !messagesSeen && partnerOnline">
-                        <span>
-                          <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
-                            <path d="M1 5l3 3L11 1" stroke="rgba(255,255,255,0.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M5 5l3 3L15 1" stroke="rgba(255,255,255,0.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </span>
-                      </template>
-                      <!-- Single gray check = sent (show when NOT connected to admin or when AI is handling) -->
-                      <template x-if="(chatStatus !== 'active' && chatStatus !== 'escalating') || (!messagesSeen && !partnerOnline && chatStatus === 'active')">
-                        <span>
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                            <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </span>
-                      </template>
-                    </span>
-                  </template>
-                </div>
-                <div class="sp-time" x-text="formatTime(msg.created_at)"></div>
+
+                <!-- ── Sent: time above + blue bubble with check marks ── -->
+                <template x-if="isOwnMessage(msg)">
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;max-width:85%;">
+                    <div class="sp-time" style="margin-bottom:3px;padding-right:4px;" x-text="formatTime(msg.created_at)"></div>
+                    <div class="sp-bubble own">
+                      <span x-text="msg.body"></span>
+                      <!-- ✓ Gray check (message sent but not seen) -->
+                      <span class="sp-msg-status">
+                        <template x-if="!messagesSeen">
+                          <span>
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                              <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                          </span>
+                        </template>
+                      </span>
+                    </div>
+                  </div>
+                </template>
+
               </div>
             </template>
             <!-- File / Image attachment message -->
@@ -1393,7 +1503,7 @@
                       accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.webp">
                 <input class="sp-input"
                       type="text"
-                      :placeholder="chatStatus === 'ended' ? 'Send a message to start a new chat…' : 'Type a message…'"
+                      :placeholder="chatStatus === 'ended' ? 'Send a message to start a new chat…' : 'Type here…'"
                       x-model="inputText"
                       @input="inputText ? _broadcastTyping(true) : _broadcastTyping(false)"
                       @keydown.enter.prevent="sendMessage()"
@@ -1460,9 +1570,9 @@
 </div>
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
-<script src="{{ asset('js/webrtc.js') }}?v=42"></script>
+<script src="{{ asset('js/webrtc.js') }}?v=44"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=48"></script>
+<script src="{{ asset('js/support.js') }}?v=49"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

@@ -3,7 +3,8 @@
     "allow": [
       "Bash(php artisan tinker '--execute=:*)",
       "Bash(php artisan:*)",
-      "Bash(php -r \"echo 'hello';\")"
+      "Bash(php -r \"echo 'hello';\")",
+      "Bash(grep -n 'supportApp\\\\|async init\\\\|this\\\\.$watch\\\\\\('\\\\''open'\\\\''' C:/Users/SMXLT-090425-01/Documents/bot_webrtc/public/js/support.js)"
     ]
   }
 }

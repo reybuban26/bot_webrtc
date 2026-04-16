@@ -47,6 +47,24 @@ window.webrtcApp = function () {
         _mixedDest:       null,   // MediaStreamAudioDestinationNode (mixed output)
         _callEnding:      false,  // guard: prevents endCall() running twice
 
+        // ── In-call Chat Panel State ──────────────────────────────
+        // (read-only — messages come from supportApp, no separate input)
+
+        // ── Computed: In-call Chat ─────────────────────────────────
+        get callChatMessages() {
+            // Read messages from the support panel component (shared via window)
+            return window.__supportApp?.messages || [];
+        },
+        get callOwnUserId() {
+            return parseInt(document.querySelector('meta[name="auth-user-id"]')?.content || '0');
+        },
+        callFormatTime(ts) {
+            if (!ts) return '';
+            try {
+                return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } catch { return ''; }
+        },
+
         // ── Init ──────────────────────────────────────────────────
         init() {
             if (!window.AgoraRTC) {

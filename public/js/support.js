@@ -63,6 +63,10 @@ window.supportApp = function () {
 
         // ── Init ──────────────────────────────────────────────────
         async init() {
+            // Expose this component globally so the WebRTC in-call chat panel
+            // can read messages and threadId without duplicating state.
+            window.__supportApp = this;
+
             this.$watch('open', val => {
                 if (val) {
                     this.unreadCount = 0;
