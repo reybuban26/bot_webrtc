@@ -27,7 +27,7 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=6"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=11"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
@@ -1007,9 +1007,17 @@
       </template>
     </div>
 
-    <!-- 📞 Call button (only when thread open) -->
-    <template x-if="threadId">
-      <button class="sp-call-btn" @click="triggerCall()" title="Start call">
+    <!-- 📞 Call button (user role only, when admin is actively connected) -->
+    <template x-if="threadId && userRole === 'user' && chatStatus === 'active'">
+      <button class="sp-call-btn" @click="triggerCall()" title="Start call with admin">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8C8 13.6 10.4 16 13.2 17.4l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+        Call
+      </button>
+    </template>
+
+    <!-- 📞 Call button disabled state (ONLY show during escalating, when admin is connecting) -->
+    <template x-if="threadId && userRole === 'user' && chatStatus === 'escalating'">
+      <button class="sp-call-btn" disabled style="opacity:0.5;cursor:not-allowed;background-color:#9ca3af;" title="Waiting for admin to connect...">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8C8 13.6 10.4 16 13.2 17.4l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
         Call
       </button>
@@ -1073,9 +1081,10 @@
               <template x-if="t.is_resolved_by_user === false">
                 <div style="font-size:.65rem;color:#ef4444;flex-shrink:0;white-space:nowrap;">✘ Not resolved</div>
               </template>
-              <!-- Star rating -->
+              <!-- Emoji rating -->
               <template x-if="t.feedback_rating">
-                <div style="font-size:.65rem;color:#f59e0b;flex-shrink:0;" x-text="'★'.repeat(t.feedback_rating)"></div>
+                <div style="font-size:.75rem;flex-shrink:0;"
+                     x-text="['','😡','😞','😐','😊','😍'][t.feedback_rating] || ''"></div>
               </template>
             </div>
           </div>
@@ -1167,11 +1176,11 @@
                 </template>
                 <div :class="['sp-bubble', isOwnMessage(msg) ? 'own' : 'other']">
                   <span x-text="msg.body"></span>
-                  <!-- ✅ Check marks para sa sariling messages -->
+                  <!-- ✅ Check marks para sa sariling messages (only show delivery status if admin is connected) -->
                   <template x-if="isOwnMessage(msg)">
                     <span class="sp-msg-status">
-                      <!-- Blue double check = seen -->
-                      <template x-if="messagesSeen">
+                      <!-- Blue double check = seen by HUMAN ADMIN (only when actively connected) -->
+                      <template x-if="messagesSeen && chatStatus === 'active'">
                         <span>
                           <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
                             <path d="M1 5l3 3L11 1" stroke="#60d4f7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1179,8 +1188,8 @@
                           </svg>
                         </span>
                       </template>
-                      <!-- Gray double check = partner online -->
-                      <template x-if="!messagesSeen && partnerOnline">
+                      <!-- Gray double check = admin is online/connected (but not necessarily seen this specific message) -->
+                      <template x-if="chatStatus === 'active' && !messagesSeen && partnerOnline">
                         <span>
                           <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
                             <path d="M1 5l3 3L11 1" stroke="rgba(255,255,255,0.6)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1188,8 +1197,8 @@
                           </svg>
                         </span>
                       </template>
-                      <!-- Single gray check = sent lang -->
-                      <template x-if="!messagesSeen && !partnerOnline">
+                      <!-- Single gray check = sent (show when NOT connected to admin or when AI is handling) -->
+                      <template x-if="(chatStatus !== 'active' && chatStatus !== 'escalating') || (!messagesSeen && !partnerOnline && chatStatus === 'active')">
                         <span>
                           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                             <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1253,67 +1262,81 @@
           </template>
 
           <template x-if="!postChatRating.submitted">
-            <div style="padding:16px;">
+            <div style="padding:18px 16px 16px;">
 
-              <!-- Question 1: Was your issue resolved? -->
-              <div style="margin-bottom:14px;">
-                <div style="font-size:.82rem;font-weight:700;color:var(--txt);margin-bottom:8px;text-align:center;">
+              <!-- Header -->
+              <div style="margin-bottom:16px;">
+                <div style="font-size:.92rem;font-weight:700;color:var(--txt);margin-bottom:3px;">
+                  How was your experience?
+                </div>
+                <div style="font-size:.75rem;color:var(--txt-3);">
                   Was your issue resolved?
                 </div>
-                <div style="display:flex;gap:8px;">
-                  <button @click="postChatRating.isResolved = true"
-                          :style="postChatRating.isResolved === true
-                            ? 'background:#22c55e;color:#fff;border-color:#22c55e;'
-                            : 'background:transparent;color:var(--txt-3);border-color:var(--border);'"
-                          style="flex:1;padding:9px 8px;border:1.5px solid;border-radius:10px;cursor:pointer;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;">
-                    ✅ Yes
-                  </button>
-                  <button @click="postChatRating.isResolved = false"
-                          :style="postChatRating.isResolved === false
-                            ? 'background:#ef4444;color:#fff;border-color:#ef4444;'
-                            : 'background:transparent;color:var(--txt-3);border-color:var(--border);'"
-                          style="flex:1;padding:9px 8px;border:1.5px solid;border-radius:10px;cursor:pointer;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;">
-                    ❌ No
-                  </button>
-                </div>
               </div>
 
-              <!-- Question 2: Star rating (optional) -->
+              <!-- Emoji rating row -->
+              <div style="display:flex;justify-content:center;gap:6px;margin-bottom:16px;">
+                <template x-for="(emoji, idx) in [
+                  { icon: '😡', val: 1, label: 'Terrible' },
+                  { icon: '😞', val: 2, label: 'Bad' },
+                  { icon: '😐', val: 3, label: 'Okay' },
+                  { icon: '😊', val: 4, label: 'Good' },
+                  { icon: '😍', val: 5, label: 'Amazing' }
+                ]" :key="emoji.val">
+                  <button @click="postChatRating.rating = emoji.val; postChatRating.isResolved = emoji.val >= 4"
+                          :style="postChatRating.rating === emoji.val
+                            ? 'transform:scale(1.2);opacity:1;background:rgba(99,102,241,.12);border-color:var(--accent);'
+                            : 'opacity:0.45;background:transparent;border-color:transparent;'"
+                          style="border:2px solid;border-radius:50%;width:48px;height:48px;cursor:pointer;
+                                 font-size:1.5rem;display:flex;align-items:center;justify-content:center;
+                                 transition:all .15s;padding:0;line-height:1;flex-shrink:0;"
+                          :title="emoji.label">
+                    <span x-text="emoji.icon"></span>
+                  </button>
+                </template>
+              </div>
+
+              <!-- Emoji label (shows selected emoji label) -->
+              <template x-if="postChatRating.rating !== null">
+                <div style="text-align:center;font-size:.72rem;font-weight:600;color:var(--accent);margin-top:-10px;margin-bottom:14px;"
+                     x-text="[null,'Terrible','Bad','Okay','Good','Amazing'][postChatRating.rating]">
+                </div>
+              </template>
+
+              <!-- Comment textarea -->
               <div style="margin-bottom:12px;">
-                <div style="font-size:.78rem;color:var(--txt-3);margin-bottom:6px;text-align:center;">
-                  Rate your experience <span style="opacity:.6;">(optional)</span>
+                <div style="font-size:.75rem;color:var(--txt-3);margin-bottom:6px;">
+                  Do you have any thoughts you'd like to share?
                 </div>
-                <div style="display:flex;justify-content:center;gap:4px;">
-                  <template x-for="i in [1, 2, 3, 4, 5]">
-                    <button @click="postChatRating.rating = i"
-                            :style="postChatRating.rating >= i
-                              ? 'opacity:1;transform:scale(1.1);'
-                              : 'opacity:0.35;'"
-                            style="background:none;border:none;cursor:pointer;font-size:1.4rem;padding:2px 3px;transition:all .12s;line-height:1;">
-                      ⭐
-                    </button>
-                  </template>
-                </div>
+                <textarea x-model="postChatRating.feedback"
+                          placeholder="Leave a comment… (optional)"
+                          maxlength="1000"
+                          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;
+                                 background:var(--bg-base);color:var(--txt);font-size:.78rem;
+                                 font-family:inherit;resize:none;height:72px;box-sizing:border-box;
+                                 outline:none;transition:border-color .15s;"
+                          @focus="$el.style.borderColor='var(--accent)'"
+                          @blur="$el.style.borderColor='var(--border)'"></textarea>
               </div>
 
-              <!-- Question 3: Comment (optional) -->
-              <textarea x-model="postChatRating.feedback"
-                        placeholder="Leave a comment… (optional)"
-                        maxlength="1000"
-                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;
-                               background:var(--bg-base);color:var(--txt);font-size:.78rem;
-                               font-family:inherit;resize:none;height:52px;margin-bottom:10px;box-sizing:border-box;"></textarea>
-
-              <!-- Submit (enabled only after Yes/No answered) -->
-              <button @click="submitRating()"
-                      :disabled="postChatRating.isResolved === null"
-                      :style="postChatRating.isResolved === null
-                        ? 'opacity:.4;cursor:not-allowed;'
-                        : 'opacity:1;cursor:pointer;'"
-                      style="width:100%;padding:9px;background:var(--accent);color:#fff;border:none;
-                             border-radius:8px;font-size:.82rem;font-weight:700;transition:opacity .15s;">
-                Submit Feedback
-              </button>
+              <!-- Action buttons -->
+              <div style="display:flex;gap:8px;">
+                <button @click="submitRating()"
+                        :disabled="postChatRating.rating === null"
+                        :style="postChatRating.rating === null
+                          ? 'opacity:.4;cursor:not-allowed;'
+                          : 'opacity:1;cursor:pointer;'"
+                        style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;
+                               border-radius:10px;font-size:.82rem;font-weight:700;transition:opacity .15s;">
+                  Send
+                </button>
+                <button @click="submitRating(true)"
+                        style="flex:1;padding:10px;background:transparent;color:var(--txt-3);
+                               border:1.5px solid var(--border);border-radius:10px;font-size:.82rem;
+                               font-weight:600;cursor:pointer;transition:opacity .15s;">
+                  Skip
+                </button>
+              </div>
 
             </div>
           </template>
@@ -1437,9 +1460,9 @@
 </div>
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
-<script src="{{ asset('js/webrtc.js') }}?v=41"></script>
+<script src="{{ asset('js/webrtc.js') }}?v=42"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=43"></script>
+<script src="{{ asset('js/support.js') }}?v=48"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {

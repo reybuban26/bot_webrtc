@@ -109,10 +109,13 @@ class SupportThreadResource extends Resource
                         }
                     }
 
-                    // Star rating
+                    // Emoji rating
                     if ($rating) {
-                        $stars = str_repeat('⭐', $rating) . str_repeat('☆', 5 - $rating);
-                        $html .= "<div style='font-size:13px;'><strong>Rating:</strong> {$stars} ({$rating}/5)</div>";
+                        $emojiMap = [1 => '😡', 2 => '😞', 3 => '😐', 4 => '😊', 5 => '😍'];
+                        $labelMap = [1 => 'Terrible', 2 => 'Bad', 3 => 'Okay', 4 => 'Good', 5 => 'Amazing'];
+                        $emoji = $emojiMap[$rating] ?? '—';
+                        $label = $labelMap[$rating] ?? '';
+                        $html .= "<div style='font-size:13px;'><strong>Rating:</strong> <span style='font-size:1.2rem;'>{$emoji}</span> <span style='color:#6b7280;'>{$label} ({$rating}/5)</span></div>";
                     }
 
                     // Comment
@@ -213,7 +216,12 @@ class SupportThreadResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('feedback_rating')
                     ->label('Rating')
-                    ->formatStateUsing(fn ($state) => $state ? str_repeat('⭐', $state) : '—')
+                    ->formatStateUsing(function ($state) {
+                        $emojiMap = [1 => '😡', 2 => '😞', 3 => '😐', 4 => '😊', 5 => '😍'];
+                        $labelMap = [1 => 'Terrible', 2 => 'Bad', 3 => 'Okay', 4 => 'Good', 5 => 'Amazing'];
+                        if (!$state) return '—';
+                        return ($emojiMap[$state] ?? '—') . ' ' . ($labelMap[$state] ?? '');
+                    })
                     ->placeholder('—'),
                 TextColumn::make('updated_at')
                     ->label('Last Activity')

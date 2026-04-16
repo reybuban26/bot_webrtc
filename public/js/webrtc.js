@@ -198,6 +198,10 @@ window.webrtcApp = function () {
                     return;
                 }
 
+                if (!data.call_id || !data.room_id) {
+                    throw new Error('Server did not return valid call credentials.');
+                }
+
                 this.callId = data.call_id;
                 this.roomId = data.room_id;
                 console.log(`[Call] Request created. ID: ${this.callId}, Room: ${this.roomId}`);
@@ -477,6 +481,10 @@ window.webrtcApp = function () {
                     this.statusLabel = data.reason || 'User is busy.';
                     setTimeout(() => { this.status = 'idle'; this.statusLabel = 'No active call'; }, 3000);
                     return;
+                }
+
+                if (!data.call_id || !data.room_id) {
+                    throw new Error('Server did not return valid call credentials.');
                 }
 
                 this.callId = data.call_id;

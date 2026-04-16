@@ -628,7 +628,12 @@ window.supportApp = function () {
                 window.dispatchEvent(new CustomEvent('open-rtc'));
                 setTimeout(() => {
                     const webrtcEl = document.querySelector('[x-data*="webrtcApp"]')?._x_dataStack?.[0];
-                    if (webrtcEl && typeof webrtcEl.callAdmin === 'function') {
+                    if (!webrtcEl) {
+                        console.error('[Support] WebRTC component not initialized.');
+                        alert('Call feature is still loading. Please try again in a moment.');
+                        return;
+                    }
+                    if (typeof webrtcEl.callAdmin === 'function') {
                         webrtcEl.callAdmin();
                     }
                 }, 100);
@@ -636,7 +641,12 @@ window.supportApp = function () {
                 window.dispatchEvent(new CustomEvent('open-rtc'));
                 setTimeout(() => {
                     const webrtcEl = document.querySelector('[x-data*="webrtcApp"]')?._x_dataStack?.[0];
-                    if (webrtcEl && typeof webrtcEl.callUser === 'function') {
+                    if (!webrtcEl) {
+                        console.error('[Support] WebRTC component not initialized.');
+                        alert('Call feature is still loading. Please try again in a moment.');
+                        return;
+                    }
+                    if (typeof webrtcEl.callUser === 'function') {
                         webrtcEl.callUser(this.activeUserId, this.activeUserName);
                     }
                 }, 100);
@@ -644,8 +654,20 @@ window.supportApp = function () {
         },
 
         // ── Post-Chat Rating ──────────────────────────────────────
-        async submitRating() {
-            if (!this.threadId || this.postChatRating.isResolved === null) return;
+        async submitRating(skip = false) {
+            if (!this.threadId) return;
+
+            // Skip: just restart without submitting feedback
+            if (skip) {
+                this.postChatRating.submitted = true;
+                setTimeout(async () => {
+                    await this._restartChat();
+                }, 500);
+                return;
+            }
+
+            // Must have an emoji rating selected to submit
+            if (this.postChatRating.rating === null) return;
 
             try {
                 const response = await fetch(`/api/support/thread/${this.threadId}/rate-chat`, {
