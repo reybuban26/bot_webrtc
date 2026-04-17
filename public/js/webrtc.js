@@ -547,13 +547,27 @@ window.webrtcApp = function () {
             this.roomId = roomId;
             this._recordingChunks = [];
 
-            // 1. Initialize client at Listeners
-            if (!this.agoraClient) {
-                this.agoraClient = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-                this.setupEventListeners(); // Ligtas na itong nandito
+            // 1. Initialize client with specific configuration
+            if (this.agoraClient) {
+                try { await this.agoraClient.leave(); } catch (_) {}
             }
+            
+            this.agoraClient = window.AgoraRTC.createClient({ 
+                mode: 'rtc', 
+                codec: 'vp8',
+                // Force client to be more aggressive about user state sync
+                clientRoleOptions: { level: 1 }
+            });
+            
+            this.setupEventListeners();
 
-            // 2. Kumuha ng Token
+            const userUid = this.callOwnUserId && this.callOwnUserId !== 0 
+                ? this.callOwnUserId 
+                : Math.floor(Math.random() * 1000000) + 1;
+            
+            console.log(`[Agora] Using UID: ${userUid} for channel: ${this.roomId}`);
+
+            // 2. Get Token
             let token = null;
             try {
                 const r = await fetch('/api/webrtc/agora/token', {
@@ -562,55 +576,119 @@ window.webrtcApp = function () {
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': this._csrf(),
                     },
-                    body: JSON.stringify({ channel: this.roomId }),
+                    body: JSON.stringify({ channel: this.roomId, uid: userUid }),
                 });
                 const d = await r.json();
                 token = d.token;
+                console.log(`[Agora] Token received, bound to UID: ${d.uid}`);
             } catch (e) {
                 console.error('[Agora] Token fetch failed:', e.message);
+                this.status = 'idle';
+                this.statusLabel = 'Token error';
+                return;
             }
 
-            // 3. I-ready ang Camera at Mic natin
-            this.localAudioTrack = await window.AgoraRTC.createMicrophoneAudioTrack({
-                AEC: true,
-                ANS: true,
-                AGC: true,
-                encoderConfig: "high_quality" 
-            });
-            this.localVideoTrack = await window.AgoraRTC.createCameraVideoTrack();
+            // 3. Prepare local tracks
+            try {
+                this.localAudioTrack = await window.AgoraRTC.createMicrophoneAudioTrack({
+                    AEC: true, ANS: true, AGC: true,
+                    encoderConfig: "high_quality"
+                });
+                this.localVideoTrack = await window.AgoraRTC.createCameraVideoTrack();
+            } catch (e) {
+                console.error('[Agora] Failed to create tracks:', e.message);
+                this.status = 'idle';
+                return;
+            }
 
-            // 🔥 FIX SA AUDIOCONTEXT WARNING:
-            // I-start at i-ready na agad ang Recorder bago pa man tayo sumali sa call!
+            // 4. Start recording
             await this._startRecording();
 
-            // 4. Sumali sa channel at i-publish ang camera/mic
-            await this.agoraClient.join(this.appId, this.roomId, token, null);
-            await this.agoraClient.publish([this.localAudioTrack, this.localVideoTrack]);
-
-            // 5. I-update ang UI para lumitaw ang mga video boxes
-            this.status = 'active';
-            this.statusLabel = 'On call';
-
-            this._startActiveCallPoll();
-
-            // 🔥 FIX SA "Cannot read properties of undefined" WARNING:
-            if (window.Echo && this.callId) {
-                window.Echo.channel('call-' + this.callId)
-                    .listen('.CallStatusChanged', (e) => {
-                        if (e.action === 'call_ended' && this.status !== 'idle') {
-                            this.endCall();
-                        }
-                });
+            // 5. Join channel
+            try {
+                await this.agoraClient.join(this.appId, this.roomId, token, userUid);
+                console.log('[Agora] Joined channel successfully');
+            } catch (e) {
+                console.error('[Agora] Join failed:', e.message);
+                this.status = 'idle';
+                return;
             }
 
-            // 🔥 FIX SA BLACK SCREEN NA CAMERA SA PC:
-            // Ginawa natin itong pinakahuli para siguradong ready na ang HTML boxes
+            // 6. Publish local tracks
+            try {
+                await this.agoraClient.publish([this.localAudioTrack, this.localVideoTrack]);
+                console.log('[Agora] Published local tracks');
+            } catch (e) {
+                console.error('[Agora] Publish failed:', e.message);
+            }
+
+            // 7. Update UI
+            this.status = 'active';
+            this.statusLabel = 'On call';
+            
+            // 8. Play local video
             this.$nextTick(() => {
                 const el = document.getElementById('local-video');
-                if (el) {
-                    el.innerHTML = ''; // Linisin muna bago i-play
+                if (el && this.localVideoTrack) {
+                    el.innerHTML = '';
                     this.localVideoTrack.play(el);
                 }
+            });
+            
+            // 9. Start polling with delay
+            setTimeout(() => this._startActiveCallPoll(), 2000);
+            
+            // 10. 🔥 NEW: Manual remote user subscription after a delay
+            setTimeout(() => this._attemptManualSubscribe(), 1000);
+        },
+
+        // 🔥 NEW HELPER FUNCTION: Manual subscription attempt
+        _attemptManualSubscribe() {
+            if (this.status !== 'active') return;
+    
+            const remoteUsers = this.agoraClient.remoteUsers;
+    
+            remoteUsers.forEach(async (user) => {
+                // 🔥 Prevent duplicate subscription attempts
+                if (this._subscribingTo && this._subscribingTo[user.uid]) {
+                    return;
+                }
+                this._subscribingTo = this._subscribingTo || {};
+                this._subscribingTo[user.uid] = true;
+            
+                // Subscribe to audio if not already subscribed
+                if (!user.audioTrack) {
+                    try {
+                        await this.agoraClient.subscribe(user, 'audio');
+                        console.log(`[Agora] ✓ Audio subscribed for uid=${user.uid}`);
+                        user.audioTrack?.play();
+                        this._addRemoteAudioToMix(user);
+                    } catch (e) {
+                        // Silent fail
+                    }
+                }
+            
+                // Subscribe to video if not already subscribed
+                if (!user.videoTrack) {
+                    try {
+                        await this.agoraClient.subscribe(user, 'video');
+                        console.log(`[Agora] ✓ Video subscribed for uid=${user.uid}`);
+                    
+                        const el = document.getElementById('remote-video');
+                        if (el && user.videoTrack) {
+                            user.videoTrack.play(el);
+                        }
+                    } catch (e) {
+                        // Silent fail
+                    }
+                }
+            
+                // Reset flag after a delay to allow future resubscriptions if needed
+                setTimeout(() => {
+                    if (this._subscribingTo) {
+                        delete this._subscribingTo[user.uid];
+                    }
+                }, 5000);
             });
         },
 
@@ -641,99 +719,43 @@ window.webrtcApp = function () {
             }
         },
 
-        // ── Agora event listeners ─────────────────────────────────
         setupEventListeners() {
-            // Diagnostic: log connection state transitions
             this.agoraClient.on('connection-state-change', (curState, prevState, reason) => {
                 console.log(`[Agora] Connection: ${prevState} → ${curState}${reason ? ' (' + reason + ')' : ''}`);
             });
 
-            // Diagnostic: log when remote user joins channel (before publish)
             this.agoraClient.on('user-joined', (user) => {
-                console.log(`[Agora] Remote user joined channel: uid=${user.uid}`);
+                console.log(`[Agora] Remote user joined: uid=${user.uid}`);
+                setTimeout(() => this._attemptManualSubscribe(), 500);
+            });
+
+            this.agoraClient.on('user-published', (user, mediaType) => {
+                console.log(`[Agora] user-published: uid=${user.uid}, mediaType=${mediaType}`);
+                // Let _attemptManualSubscribe handle subscription to avoid race conditions
+                setTimeout(() => this._attemptManualSubscribe(), 300);
             });
 
             this.agoraClient.on('token-privilege-will-expire', async () => {
-                console.warn('[Agora] Token will expire — renewing.');
+                console.warn('[Agora] Token expiring — renewing');
                 try {
                     const r = await fetch('/api/webrtc/agora/token', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf() },
-                        body: JSON.stringify({ channel: this.roomId }),
+                        body: JSON.stringify({ channel: this.roomId, uid: this.callOwnUserId }),
                     });
                     const d = await r.json();
                     if (d.token) await this.agoraClient.renewToken(d.token);
-                } catch (e) { console.error('[Agora] Token renew failed:', e.message); }
-            });
-
-            this.agoraClient.on('user-published', async (user, mediaType) => {
-                console.log(`[Agora] user-published received: uid=${user.uid}, mediaType=${mediaType}, connState=${this.agoraClient.connectionState}`);
-
-                // Subscribe with retry — INVALID_REMOTE_USER can happen during reconnects
-                let subscribed = false;
-                for (let attempt = 1; attempt <= 5; attempt++) {
-                    // Wait for CONNECTED state before attempting
-                    if (this.agoraClient.connectionState !== 'CONNECTED') {
-                        console.warn(`[Agora] Connection state is ${this.agoraClient.connectionState}, waiting...`);
-                        await new Promise(r => setTimeout(r, 1500));
-                    }
-                    try {
-                        await this.agoraClient.subscribe(user, mediaType);
-                        subscribed = true;
-                        console.log(`[Agora] Subscribed to ${mediaType} (attempt ${attempt}).`);
-                        break;
-                    } catch (e) {
-                        console.warn(`[Agora] Subscribe ${mediaType} attempt ${attempt} failed: ${e.message} (connState=${this.agoraClient.connectionState}, remoteUsers=${this.agoraClient.remoteUsers.map(u=>u.uid).join(',')})`);
-                        if (attempt < 5) {
-                            await new Promise(r => setTimeout(r, 1000 * attempt)); // 1s, 2s, 3s, 4s
-                        }
-                    }
-                }
-                if (!subscribed) {
-                    console.error(`[Agora] Could not subscribe to ${mediaType} after 5 attempts.`);
-                    return;
-                }
-
-                this.status      = 'active';
-                this.statusLabel = 'Call active';
-
-                if (mediaType === 'video') {
-                    // Play remote video — #remote-video is always in DOM
-                    const playRemote = () => {
-                        const el = document.getElementById('remote-video');
-                        if (el && user.videoTrack) {
-                            el.innerHTML = '';
-                            try {
-                                user.videoTrack.play(el);
-                                console.log('[Agora] Remote video playing.');
-                            } catch(e) {
-                                console.error('[Agora] Remote video play failed:', e.message);
-                            }
-                        } else {
-                            console.warn('[Agora] remote-video el or videoTrack not ready, retrying...');
-                        }
-                    };
-
-                    // Play immediately + retry at 800ms and 2s as fallback
-                    playRemote();
-                    setTimeout(playRemote, 800);
-                    setTimeout(playRemote, 2000);
-                }
-
-                if (mediaType === 'audio') {
-                    try { user.audioTrack?.play(); } catch(e) {}
-                    this._addRemoteAudioToMix(user);
+                } catch (e) { 
+                    console.error('[Agora] Token renew failed:', e.message); 
                 }
             });
 
-            // When remote user re-publishes after reconnect, replay their video
             this.agoraClient.on('user-unpublished', (user, mediaType) => {
-                if (mediaType === 'video' && user.videoTrack) {
-                    try { user.videoTrack.stop(); } catch(e) {}
-                }
+                console.log(`[Agora] Remote unpublished: uid=${user.uid}, mediaType=${mediaType}`);
             });
 
-            this.agoraClient.on('user-left', () => {
+            this.agoraClient.on('user-left', (user) => {
+                console.log(`[Agora] Remote user left: uid=${user.uid}`);
                 if (this.status === 'idle') return;
                 this.status = 'ended';
                 this.statusLabel = 'Call ended';

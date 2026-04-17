@@ -132,10 +132,14 @@ class WebRtcController extends Controller
     /**
      * Generate Agora RTC temporary token.
      */
+    /**
+     * Generate Agora RTC temporary token.
+     */
     public function generateAgoraToken(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'channel' => 'required|string|max:64',
+            'uid'     => 'nullable|numeric'
         ]);
 
         $appId = config('services.agora.app_id');
@@ -146,19 +150,19 @@ class WebRtcController extends Controller
         }
 
         $channelName = $validated['channel'];
-        
-        // Use 0 as UID to allow the Agora SDK to assign one automatically
-        $uid = '0';
+        $uid = (int) ($request->input('uid') ?? 0);
         
         // Privilege expires in an hour
         $privilegeExpiredTs = now()->timestamp + 3600;
 
         $factory = new \Monyxie\Agora\TokenBuilder\TokenFactory($appId, $appCertificate);
+        
+        // Pass the UID explicitly — this binds the token to that specific UID
         $token = $factory->create($channelName, $uid, null, $privilegeExpiredTs);
 
         return response()->json([
             'token' => $token->toString(),
-            'uid'   => 0,
+            'uid'   => $uid,
         ]);
     }
 }

@@ -879,8 +879,7 @@
 
       <!-- ── Active/Connecting/Waiting State ── -->
       <!-- Desktop: flex row (video | chat). Mobile: just the stage (chat hidden via CSS). -->
-      <template x-if="status !== 'idle'">
-        <div class="rtc-call-container">
+      <div class="rtc-call-container" x-show="status !== 'idle'" x-cloak>
         <div class="rtc-stage-wrap">
 
           <!-- Remote video: fills the full portrait stage -->
@@ -994,7 +993,6 @@
         </div><!-- /.rtc-stage-wrap -->
 
         </div><!-- /.rtc-call-container -->
-      </template>
     </div>
   </div>
 </div>
@@ -1526,7 +1524,7 @@
 </div>
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
-<script src="{{ asset('js/webrtc.js') }}?v=49"></script>
+<script src="{{ asset('js/webrtc.js') }}?v=61"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
 <script src="{{ asset('js/support.js') }}?v=51"></script>
 <script>
