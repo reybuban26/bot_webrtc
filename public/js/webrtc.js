@@ -553,8 +553,6 @@ window.webrtcApp = function () {
                 this.setupEventListeners();
             }
 
-            // 2. Fetch token + capture mic + capture camera ALL IN PARALLEL
-            //    (was sequential before — this alone saves ~1-2s)
             let token = null;
             try {
                 const [tokenData, audioTrack, videoTrack] = await Promise.all([
@@ -586,7 +584,8 @@ window.webrtcApp = function () {
             this._startRecording();
 
             // 4. Join channel and publish tracks
-            await this.agoraClient.join(this.appId, this.roomId, token, null);
+            const userUid = this.callOwnUserId && this.callOwnUserId !== 0 ? this.callOwnUserId : null; 
+            await this.agoraClient.join(this.appId, this.roomId, token, userUid);
             await this.agoraClient.publish([this.localAudioTrack, this.localVideoTrack]);
 
             // 5. Update UI
@@ -644,12 +643,54 @@ window.webrtcApp = function () {
 
         // ── Agora event listeners ─────────────────────────────────
         setupEventListeners() {
-            this.agoraClient.on('user-published', async (user, mediaType) => {
-                // The `user` param IS the remote user — no retry loop needed.
+            // Diagnostic: log connection state transitions
+            this.agoraClient.on('connection-state-change', (curState, prevState, reason) => {
+                console.log(`[Agora] Connection: ${prevState} → ${curState}${reason ? ' (' + reason + ')' : ''}`);
+            });
+
+            // Diagnostic: log when remote user joins channel (before publish)
+            this.agoraClient.on('user-joined', (user) => {
+                console.log(`[Agora] Remote user joined channel: uid=${user.uid}`);
+            });
+
+            this.agoraClient.on('token-privilege-will-expire', async () => {
+                console.warn('[Agora] Token will expire — renewing.');
                 try {
-                    await this.agoraClient.subscribe(user, mediaType);
-                } catch (e) {
-                    console.warn('[Agora] Subscribe failed:', e.message);
+                    const r = await fetch('/api/webrtc/agora/token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf() },
+                        body: JSON.stringify({ channel: this.roomId }),
+                    });
+                    const d = await r.json();
+                    if (d.token) await this.agoraClient.renewToken(d.token);
+                } catch (e) { console.error('[Agora] Token renew failed:', e.message); }
+            });
+
+            this.agoraClient.on('user-published', async (user, mediaType) => {
+                console.log(`[Agora] user-published received: uid=${user.uid}, mediaType=${mediaType}, connState=${this.agoraClient.connectionState}`);
+
+                // Subscribe with retry — INVALID_REMOTE_USER can happen during reconnects
+                let subscribed = false;
+                for (let attempt = 1; attempt <= 5; attempt++) {
+                    // Wait for CONNECTED state before attempting
+                    if (this.agoraClient.connectionState !== 'CONNECTED') {
+                        console.warn(`[Agora] Connection state is ${this.agoraClient.connectionState}, waiting...`);
+                        await new Promise(r => setTimeout(r, 1500));
+                    }
+                    try {
+                        await this.agoraClient.subscribe(user, mediaType);
+                        subscribed = true;
+                        console.log(`[Agora] Subscribed to ${mediaType} (attempt ${attempt}).`);
+                        break;
+                    } catch (e) {
+                        console.warn(`[Agora] Subscribe ${mediaType} attempt ${attempt} failed: ${e.message} (connState=${this.agoraClient.connectionState}, remoteUsers=${this.agoraClient.remoteUsers.map(u=>u.uid).join(',')})`);
+                        if (attempt < 5) {
+                            await new Promise(r => setTimeout(r, 1000 * attempt)); // 1s, 2s, 3s, 4s
+                        }
+                    }
+                }
+                if (!subscribed) {
+                    console.error(`[Agora] Could not subscribe to ${mediaType} after 5 attempts.`);
                     return;
                 }
 
@@ -657,14 +698,26 @@ window.webrtcApp = function () {
                 this.statusLabel = 'Call active';
 
                 if (mediaType === 'video') {
-                    // Play immediately after subscribe — no stacked timeouts needed.
-                    this.$nextTick(() => {
+                    // Play remote video — #remote-video is always in DOM
+                    const playRemote = () => {
                         const el = document.getElementById('remote-video');
                         if (el && user.videoTrack) {
                             el.innerHTML = '';
-                            try { user.videoTrack.play(el); } catch(e) {}
+                            try {
+                                user.videoTrack.play(el);
+                                console.log('[Agora] Remote video playing.');
+                            } catch(e) {
+                                console.error('[Agora] Remote video play failed:', e.message);
+                            }
+                        } else {
+                            console.warn('[Agora] remote-video el or videoTrack not ready, retrying...');
                         }
-                    });
+                    };
+
+                    // Play immediately + retry at 800ms and 2s as fallback
+                    playRemote();
+                    setTimeout(playRemote, 800);
+                    setTimeout(playRemote, 2000);
                 }
 
                 if (mediaType === 'audio') {
@@ -673,8 +726,11 @@ window.webrtcApp = function () {
                 }
             });
 
+            // When remote user re-publishes after reconnect, replay their video
             this.agoraClient.on('user-unpublished', (user, mediaType) => {
-                if (mediaType === 'video' && user.videoTrack) user.videoTrack.stop();
+                if (mediaType === 'video' && user.videoTrack) {
+                    try { user.videoTrack.stop(); } catch(e) {}
+                }
             });
 
             this.agoraClient.on('user-left', () => {

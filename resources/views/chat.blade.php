@@ -27,7 +27,7 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=20"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=21"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
@@ -885,9 +885,9 @@
 
           <!-- Remote video: fills the full portrait stage -->
           <div class="rtc-remote-stage">
-            <!-- Always in DOM — Agora must be able to play here at any time -->
-            <div id="remote-video" style="position: absolute; inset: 0; width: 100%; height: 100%;"></div>
-            <!-- Placeholder overlays on top when not yet active -->
+            <!-- Always in DOM — Agora plays here; placeholder overlays it when not active -->
+            <div id="remote-video" style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;"></div>
+            <!-- Placeholder overlays on top (z-index:5) when not yet active -->
             <div class="rtc-stage-placeholder" x-show="status !== 'active'">
               <!-- Animated pulse avatar -->
               <div class="rtc-avatar-pulse">
@@ -1526,7 +1526,7 @@
 </div>
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
-<script src="{{ asset('js/webrtc.js') }}?v=44"></script>
+<script src="{{ asset('js/webrtc.js') }}?v=48"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
 <script src="{{ asset('js/support.js') }}?v=51"></script>
 <script>
