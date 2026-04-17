@@ -10,21 +10,11 @@ use Illuminate\Support\Str;
 
 class QwenAiService
 {
-    // ── Models ────────────────────────────────────────────────────────────────
-    /** Chat / summarization — DashScope International (Singapore) */
     private const CHAT_MODEL = 'qwen3.5-plus';
-
-    /** Audio transcription — Groq Whisper */
     private const GROQ_ASR_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
-
-    /** Meeting notes summarization — Groq LLM (OpenAI-compatible) */
     private const GROQ_CHAT_ENDPOINT     = 'https://api.groq.com/openai/v1/chat/completions';
     private const GROQ_SUMMARIZE_MODEL   = 'llama-3.3-70b-versatile';
-
-    // ── Chat endpoint ─────────────────────────────────────────────────────────
     private const CHAT_ENDPOINT = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
-
-    // ── Credentials ───────────────────────────────────────────────────────────
     private string $qwenApiKey;
     private string $groqApiKey;
     private string $groqAsrModel;
@@ -33,7 +23,7 @@ class QwenAiService
     {
         $this->qwenApiKey   = config('services.qwen.api_key', '');
         $this->groqApiKey   = config('services.groq.api_key', '');
-        $this->groqAsrModel = config('services.groq.asr_model', 'whisper-large-v3');
+        $this->groqAsrModel = config('services.groq.asr_model', 'whisper-large-v3-turbo');
     }
 
     public function isConfigured(): bool
@@ -160,71 +150,6 @@ class QwenAiService
         }
     }
 
-    /**
-     * Generate a short chat title from the current conversation context.
-     * It updates dynamically if the context evolves.
-     */
-    // public function generateTitle(ChatSession $session): string
-    // {
-    //     $history = $session->getConversationHistory(4);
-    //     $historyText = collect($history)->map(fn($m) => strtoupper($m['role']) . ': ' . $m['content'])->implode("\n");
-
-    //     if (empty($this->qwenApiKey)) {
-    //         $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
-    //         return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
-    //     }
-
-    //     $startTime = microtime(true);
-    //     try {
-    //         $payload = [
-    //             'model'       => self::CHAT_MODEL,
-    //             'messages'    => [
-    //                 [
-    //                     'role'    => 'system',
-    //                     'content' => "Generate a short, clear chat title based on the user's message. "
-    //                             . "Summarize the intent in 5–8 words, avoid generic titles like 'New Chat', and focus on the main goal of the query. "
-    //                             . "Output ONLY the raw title. No quotes, no punctuation at the end.\n\n"
-    //                             . "Example: User: 'What is the title inside this PDF?' → Extracting PDF Title",
-    //                 ],
-    //                 ['role' => 'user', 'content' => "Conversation Context:\n" . $historyText],
-    //             ],
-    //             'max_tokens'  => 20,
-    //             'temperature' => 0.1, // Binabaan natin to 0.1 para strict at sundin ang format
-    //             'stream'      => false,
-    //         ];
-            
-    //         $response = Http::withHeaders([
-    //             'Authorization' => 'Bearer ' . $this->qwenApiKey,
-    //             'Content-Type'  => 'application/json',
-    //         ])->timeout(50)->post(self::CHAT_ENDPOINT, $payload); // Tinaasan natin timeout to 15s
-
-    //         $durationMs = round((microtime(true) - $startTime) * 1000);
-
-    //         \App\Models\ApiLog::create([
-    //             'service' => 'qwen_title',
-    //             'endpoint' => self::CHAT_ENDPOINT,
-    //             'method' => 'POST',
-    //             'status_code' => $response->status(),
-    //             'request_payload' => $payload,
-    //             'response_payload' => $response->json(),
-    //             'error_message' => $response->successful() ? null : $response->body(),
-    //             'duration_ms' => $durationMs,
-    //             'ip_address' => request()->ip(),
-    //         ]);
-
-    //         if ($response->successful()) {
-    //             $title = trim(trim($response->json('choices.0.message.content') ?? ''), '"\'');
-    //             if ($title && mb_strlen($title) <= 80) {
-    //                 return $title;
-    //             }
-    //         }
-    //     } catch (\Throwable $e) {
-    //         Log::warning('[Chat] Title generation failed', ['error' => $e->getMessage()]);
-    //     }
-    //     $firstMessage = $session->messages()->where('role', 'user')->oldest()->first();
-    //     return $firstMessage ? $this->fallbackTitle($firstMessage->content) : 'New Chat';
-    // }
-
     public function generateTitle(ChatSession $session): string
     {
         $history = $session->getConversationHistory(4); // Bawasan sa 4 lang
@@ -318,10 +243,17 @@ class QwenAiService
 
         // 1. Kapag totoong nag-error ang Groq API o network issue
         if (! $result) {
-            Log::warning('[Groq] Transcription failed (API Error)', ['path' => $localPath]);
-            return "⚠️ **Meeting notes could not be generated** — transcription failed.\n\n"
-                . "The call recording is saved for manual review.";
+            Log::warning('[Groq] Transcription failed or no speech detected', [
+                'path' => $localPath,
+                'duration' => $durationSec,
+            ]);
+
+            $durationFormatted = $durationSec > 0 ? gmdate('i:s', $durationSec) : 'unknown';
+            return "ℹ️ **No Conversation Detected**\n\n"
+                . "The call lasted {$durationFormatted} but no significant speech was captured.\n\n"
+                . "📎 The recording has been saved for manual review.";
         }
+
 
         // 2. Kunin ang text at linisin ang extra spaces
         $transcript = trim($result['text'] ?? '');
@@ -342,19 +274,7 @@ class QwenAiService
         return $this->summarizeTranscript($transcript, $durationSec, $language);
     }
 
-    // ── Groq Whisper REST call ────────────────────────────────────────────────
-
-    /**
-     * Whisper context prompt. 
-     * Ginagamit lang ito para bigyan ng idea si Whisper sa mga common words
-     * na ginagamit sa meeting para hindi siya mag-imbento.
-     */
-    private const WHISPER_PROMPT = 'This is a high-quality meeting recording with mixed English and Tagalog (Filipino) speech. The speakers are clear. Focus on capturing the exact words: hello, kumain ka na ba, kamusta, yes, okay, sige po, opo, yung, anong, bakit.';
-    /**
-     * POST the audio file to Groq Whisper and return the transcript + detected language.
-     *
-     * @return array{text: string, language: string}|null
-     */
+    private const WHISPER_PROMPT = '';
     private function transcribeWithGroq(string $localPath): ?array
     {
         $mimeType = mime_content_type($localPath) ?: 'audio/webm';
@@ -366,7 +286,6 @@ class QwenAiService
             'size_kb'  => $sizeKb,
             'mime'     => $mimeType,
             'model'    => $this->groqAsrModel,
-            'endpoint' => self::GROQ_ASR_ENDPOINT,
         ]);
 
         try {
@@ -382,47 +301,59 @@ class QwenAiService
                 'response_format'          => 'verbose_json',
                 'timestamp_granularities[]' => 'segment',
                 'temperature'              => 0,
-                // No 'language' — let Whisper auto-detect.
-                // Hardcoding 'tl' forced Tagalog on English/Taglish speech,
-                // degrading accuracy for both languages.
-                'prompt'                   => self::WHISPER_PROMPT,
             ]);
 
             Log::info('[Groq] Whisper response', [
                 'status'   => $response->status(),
                 'language' => $response->json('language'),
-                'preview'  => substr($response->json('text') ?? '', 0, 200),
+                'text_raw' => $response->json('text'),
             ]);
 
             if ($response->successful()) {
                 $text     = trim($response->json('text') ?? '');
                 $language = $response->json('language') ?? 'unknown';
+                $segments = $response->json('segments') ?? [];
 
-                // --- 🛑 ANTI-HALLUCINATION FILTER 🛑 ---
-                // Linisin ang mga common na iniimbento ng Whisper kapag may dead air
+                // 🔥 NEW: Check if there's actual speech (segments with >0.5s duration)
+                $totalSpeechDuration = 0;
+                foreach ($segments as $seg) {
+                    $totalSpeechDuration += ($seg['end'] ?? 0) - ($seg['start'] ?? 0);
+                }
+
+                Log::info('[Groq] Speech analysis', [
+                    'segments_count' => count($segments),
+                    'speech_seconds' => round($totalSpeechDuration, 1),
+                    'text_length'    => strlen($text),
+                ]);
+
+                // 🛑 If total speech is less than 0.5 seconds, it's likely just noise/greeting
+                if ($totalSpeechDuration < 0.5 && strlen($text) < 20) {
+                    Log::info('[Groq] No significant speech detected — returning null');
+                    return null;
+                }
+
+                // 🛑 Filter out common hallucinations but DON'T remove legitimate short text
                 $hallucinations = [
                     'Salamat sa panonood',
                     'Thank you for watching',
                     'Subtitles by',
                     'Amara.org',
-                    'A clear recording',
                     'Please subscribe',
-                    'Thank you.',
-                    'Salamat.',
                 ];
-                
-                $text = str_ireplace($hallucinations, '', $text);
-                $text = trim($text);
 
-                // Kapag napaka-ikli ng transcript (ex. 1-4 words) at puro noise lang, i-drop na natin.
-                if (strlen($text) < 5) {
-                    Log::info('[Groq] Transcript was too short or just a hallucination.', ['original' => $response->json('text')]);
-                    return null; // I-treat as failed transcription para di na i-summarize ni Llama
+                // Only filter if the text EXACTLY matches or starts with a hallucination
+                $lowerText = strtolower($text);
+                foreach ($hallucinations as $h) {
+                    if (stripos($text, $h) === 0 || strtolower($text) === strtolower($h)) {
+                        Log::info('[Groq] Hallucination detected and filtered', ['text' => $text]);
+                        return null;
+                    }
                 }
-                // ---------------------------------------
 
-                if ($text !== '') {
-                    Log::info('[Groq] Transcript received', [
+                // 🔥 NEW: Accept even short transcripts if they have legitimate content
+                // Previously we rejected anything < 5 chars. Now we check if it contains actual words.
+                if (strlen($text) > 0 && preg_match('/[a-zA-Z]{2,}/', $text)) {
+                    Log::info('[Groq] Valid transcript received', [
                         'chars'    => strlen($text),
                         'language' => $language,
                         'preview'  => substr($text, 0, 120),
@@ -430,9 +361,7 @@ class QwenAiService
                     return ['text' => $text, 'language' => $language];
                 }
 
-                Log::warning('[Groq] Response successful but text is empty after filtering', [
-                    'body' => $response->body(),
-                ]);
+                Log::warning('[Groq] Transcript contains no recognizable words', ['text' => $text]);
                 return null;
             }
 
