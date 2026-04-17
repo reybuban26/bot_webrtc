@@ -547,68 +547,69 @@ window.webrtcApp = function () {
             this.roomId = roomId;
             this._recordingChunks = [];
 
-            // 1. Initialize client at Listeners
+            // 1. Initialize Agora client and listeners
             if (!this.agoraClient) {
                 this.agoraClient = window.AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-                this.setupEventListeners(); // Ligtas na itong nandito
+                this.setupEventListeners();
             }
 
-            // 2. Kumuha ng Token
+            // 2. Fetch token + capture mic + capture camera ALL IN PARALLEL
+            //    (was sequential before — this alone saves ~1-2s)
             let token = null;
             try {
-                const r = await fetch('/api/webrtc/agora/token', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': this._csrf(),
-                    },
-                    body: JSON.stringify({ channel: this.roomId }),
-                });
-                const d = await r.json();
-                token = d.token;
+                const [tokenData, audioTrack, videoTrack] = await Promise.all([
+                    fetch('/api/webrtc/agora/token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': this._csrf(),
+                        },
+                        body: JSON.stringify({ channel: this.roomId }),
+                    }).then(r => r.json()),
+                    window.AgoraRTC.createMicrophoneAudioTrack({
+                        AEC: true, ANS: true, AGC: true,
+                        encoderConfig: 'high_quality',
+                    }),
+                    window.AgoraRTC.createCameraVideoTrack(),
+                ]);
+                token          = tokenData.token;
+                this.localAudioTrack = audioTrack;
+                this.localVideoTrack = videoTrack;
             } catch (e) {
-                console.error('[Agora] Token fetch failed:', e.message);
+                console.error('[Agora] Parallel setup failed:', e.message);
+                this.status      = 'idle';
+                this.statusLabel = 'No active call';
+                return;
             }
 
-            // 3. I-ready ang Camera at Mic natin
-            this.localAudioTrack = await window.AgoraRTC.createMicrophoneAudioTrack({
-                AEC: true,
-                ANS: true,
-                AGC: true,
-                encoderConfig: "high_quality" 
-            });
-            this.localVideoTrack = await window.AgoraRTC.createCameraVideoTrack();
+            // 3. Start recording (fire-and-forget — does not need to block join)
+            this._startRecording();
 
-            // 🔥 FIX SA AUDIOCONTEXT WARNING:
-            // I-start at i-ready na agad ang Recorder bago pa man tayo sumali sa call!
-            await this._startRecording();
-
-            // 4. Sumali sa channel at i-publish ang camera/mic
+            // 4. Join channel and publish tracks
             await this.agoraClient.join(this.appId, this.roomId, token, null);
             await this.agoraClient.publish([this.localAudioTrack, this.localVideoTrack]);
 
-            // 5. I-update ang UI para lumitaw ang mga video boxes
-            this.status = 'active';
+            // 5. Update UI
+            this.status      = 'active';
             this.statusLabel = 'On call';
 
             this._startActiveCallPoll();
 
-            // 🔥 FIX SA "Cannot read properties of undefined" WARNING:
+            // 6. Subscribe to call-ended signal
             if (window.Echo && this.callId) {
                 window.Echo.channel('call-' + this.callId)
                     .listen('.CallStatusChanged', (e) => {
                         if (e.action === 'call_ended' && this.status !== 'idle') {
                             this.endCall();
                         }
-                });
+                    });
             }
 
-            // 🔥 FIX SA BLACK SCREEN NA CAMERA SA PC:
-            // Ginawa natin itong pinakahuli para siguradong ready na ang HTML boxes
+            // 7. Play local video immediately after publish
             this.$nextTick(() => {
                 const el = document.getElementById('local-video');
                 if (el) {
-                    el.innerHTML = ''; // Linisin muna bago i-play
+                    el.innerHTML = '';
                     this.localVideoTrack.play(el);
                 }
             });
@@ -644,45 +645,31 @@ window.webrtcApp = function () {
         // ── Agora event listeners ─────────────────────────────────
         setupEventListeners() {
             this.agoraClient.on('user-published', async (user, mediaType) => {
-                
-                let remoteUser = null;
-                for (let i = 0; i < 10; i++) {
-                    remoteUser = this.agoraClient.remoteUsers.find(u => u.uid === user.uid);
-                    if (remoteUser) break;
-                    await new Promise(r => setTimeout(r, 200));
-                }
-                if (!remoteUser) return;
-
+                // The `user` param IS the remote user — no retry loop needed.
                 try {
-                    await this.agoraClient.subscribe(remoteUser, mediaType);
+                    await this.agoraClient.subscribe(user, mediaType);
                 } catch (e) {
+                    console.warn('[Agora] Subscribe failed:', e.message);
                     return;
                 }
 
-                this.status = 'active';
+                this.status      = 'active';
                 this.statusLabel = 'Call active';
 
                 if (mediaType === 'video') {
-                    const playVideo = () => {
-                        const el = document.getElementById('remote-video');
-                        if (el && remoteUser.videoTrack) {
-                            el.innerHTML = ''; // Linisin bago i-play
-                            try { remoteUser.videoTrack.play(el); } catch(e) {}
-                        }
-                    };
-                    
-                    // Siguraduhing ready ang remote-video div bago i-play
+                    // Play immediately after subscribe — no stacked timeouts needed.
                     this.$nextTick(() => {
-                        setTimeout(playVideo, 100);
-                        setTimeout(playVideo, 500);
-                        setTimeout(playVideo, 1000);
+                        const el = document.getElementById('remote-video');
+                        if (el && user.videoTrack) {
+                            el.innerHTML = '';
+                            try { user.videoTrack.play(el); } catch(e) {}
+                        }
                     });
                 }
-                
+
                 if (mediaType === 'audio') {
-                    try { remoteUser.audioTrack.play(); } catch(e) {}
-                    // Diretso nang magwowork ito dahil inuna natin ang _startRecording!
-                    this._addRemoteAudioToMix(remoteUser);
+                    try { user.audioTrack?.play(); } catch(e) {}
+                    this._addRemoteAudioToMix(user);
                 }
             });
 

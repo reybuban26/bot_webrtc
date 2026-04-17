@@ -382,7 +382,9 @@ class QwenAiService
                 'response_format'          => 'verbose_json',
                 'timestamp_granularities[]' => 'segment',
                 'temperature'              => 0,
-                'language'                 => 'tl',
+                // No 'language' — let Whisper auto-detect.
+                // Hardcoding 'tl' forced Tagalog on English/Taglish speech,
+                // degrading accuracy for both languages.
                 'prompt'                   => self::WHISPER_PROMPT,
             ]);
 
@@ -471,24 +473,32 @@ class QwenAiService
                 'messages' => [
                     [
                         'role'    => 'system',
-                        'content' => 'You are a call summarizer. ' . $languageNote . ' '
-                            . 'ALL of the following are FORBIDDEN: '
-                            . '(1) saying the call is too short or lacks content; '
-                            . '(2) explaining culture, emotions, intent, or social customs; '
-                            . '(3) adding ANY word, phrase, or detail NOT literally derived from the transcript; '
-                            . '(4) adding sections, bullet points, headers, or action items. '
-                            . 'If the transcript is extremely short (e.g. 1-5 simple words like "Hello", "Thank you"), DO NOT create a formal note. '
-                            . 'Instead, output a natural 1-sentence summary like: "The caller briefly acknowledged understanding." or "No significant conversation was detected beyond brief greetings/noise." '
-                            . 'For longer transcripts, summarize accurately without adding fabricated details. '
-                            . 'ONE sentence to ONE short paragraph maximum.',
+                        'content' => implode(' ', [
+                            'You are a professional call summarizer for a customer support team.',
+                            $languageNote,
+                            'Your job is to produce clean, structured meeting notes from the transcript below.',
+                            'STRICT RULES:',
+                            '(1) Only include facts that are EXPLICITLY stated in the transcript — never invent, infer, or embellish.',
+                            '(2) Never describe tone, emotions, culture, or social customs.',
+                            '(3) Never explain what is missing from the transcript.',
+                            'OUTPUT FORMAT — use this exact structure (omit a section only if the transcript has no content for it):',
+                            '**Summary**',
+                            'One to two sentences describing what the call was about.',
+                            '**Key Points**',
+                            'Bullet list of the main topics discussed (max 5 bullets).',
+                            '**Action Items**',
+                            'Bullet list of tasks or follow-ups that were explicitly mentioned. If none, write "None."',
+                            '**Duration:** [duration]',
+                            'If the transcript is extremely short (1–5 words, just greetings or noise), skip all sections and output one sentence: "No significant conversation detected."',
+                        ]),
                     ],
                     [
                         'role'    => 'user',
                         'content' => "Detected language: {$language}\nCall duration: {$duration}\n\nTranscript:\n{$transcript}",
                     ],
                 ],
-                'max_tokens'  => 150,
-                'temperature' => 0.1,   // near-deterministic for maximum literal accuracy
+                'max_tokens'  => 500,
+                'temperature' => 0.1,
                 'stream'      => false,
             ]);
 
