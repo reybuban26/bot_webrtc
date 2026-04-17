@@ -27,7 +27,7 @@
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
 @vite(['resources/css/app.css', 'resources/js/app.js'])
-<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=19"/>
+<link rel="stylesheet" href="{{ asset('css/chatbot.css') }}?v=20"/>
 <style>
   /* Inline extras that depend on server-side theme */
   [x-cloak] { display: none !important; }
@@ -885,8 +885,9 @@
 
           <!-- Remote video: fills the full portrait stage -->
           <div class="rtc-remote-stage">
-            <!-- Always keep remote-video in DOM (x-show not x-if) so Agora can attach stream any time -->
-            <div id="remote-video" x-show="status === 'active'" style="width: 100%; height: 100%;"></div>
+            <!-- Always in DOM — Agora must be able to play here at any time -->
+            <div id="remote-video" style="position: absolute; inset: 0; width: 100%; height: 100%;"></div>
+            <!-- Placeholder overlays on top when not yet active -->
             <div class="rtc-stage-placeholder" x-show="status !== 'active'">
               <!-- Animated pulse avatar -->
               <div class="rtc-avatar-pulse">
@@ -947,15 +948,16 @@
             <span x-text="speakerMuted ? 'Speaker Off' : 'Muted'"></span>
           </div>
 
-          <!-- Bottom info bar: room ID + live dot -->
-          <div class="rtc-info-bar" x-show="roomId">
+          <!-- Bottom info bar: caller name + live dot -->
+          <div class="rtc-info-bar" x-show="status === 'active'">
             <div class="rtc-info-left">
-              <div class="rtc-info-name" x-text="roomId" @click="copyRoomId()" title="Click to copy"></div>
+              <div class="rtc-caller-chip">
+                <div class="rtc-caller-chip-avatar" x-text="(callerName || 'U').charAt(0).toUpperCase()"></div>
+                <div class="rtc-caller-chip-name" x-text="callerName || 'Support'"></div>
+              </div>
               <div class="rtc-info-status">
-                <template x-if="status === 'active'">
-                  <span class="rtc-live-dot"></span>
-                </template>
-                <span x-text="statusLabel" style="font-size:.75rem;color:rgba(255,255,255,.6);"></span>
+                <span class="rtc-live-dot"></span>
+                <span style="font-size:.75rem;color:rgba(255,255,255,.6);">On call</span>
               </div>
             </div>
           </div>
@@ -990,66 +992,6 @@
             </button>
           </div>
         </div><!-- /.rtc-stage-wrap -->
-
-        <!-- ── In-call Chat Panel (desktop right side) ────────── -->
-        <div class="rtc-chat-panel">
-
-          <!-- Header -->
-          <div class="rtc-chat-panel-header">
-            <div class="rtc-chat-panel-title">Chat</div>
-            <div class="rtc-chat-panel-name" x-text="callerName ? 'Call with ' + callerName : 'Support Chat'"></div>
-          </div>
-
-          <!-- Messages -->
-          <div class="rtc-chat-panel-messages" id="rtc-call-chat-messages">
-
-            <!-- Empty state -->
-            <template x-if="callChatMessages.length === 0">
-              <div style="text-align:center;padding:32px 16px;color:var(--txt-3);font-size:.8rem;">
-                No messages yet
-              </div>
-            </template>
-
-            <template x-for="msg in callChatMessages" :key="msg.id">
-              <div>
-                <!-- System message -->
-                <template x-if="msg.role === 'system' || msg.type === 'system' || msg.type === 'call_started' || msg.type === 'call_ended'">
-                  <div class="rtc-call-msg-wrap" style="align-items:center;">
-                    <div class="rtc-call-msg-bubble system" x-text="msg.body"></div>
-                  </div>
-                </template>
-
-                <!-- AI response -->
-                <template x-if="msg.type === 'ai_response'">
-                  <div class="rtc-call-msg-wrap other">
-                    <div class="rtc-call-msg-sender">🤖 AI Agent</div>
-                    <div class="rtc-call-msg-bubble other" x-text="msg.body"></div>
-                    <div class="rtc-call-msg-time" x-text="callFormatTime(msg.created_at)"></div>
-                  </div>
-                </template>
-
-                <!-- Regular text message -->
-                <template x-if="msg.type === 'text' || msg.type === 'file'">
-                  <div :class="['rtc-call-msg-wrap', msg.sender_id === callOwnUserId ? 'own' : 'other']">
-                    <template x-if="msg.sender_id !== callOwnUserId">
-                      <div class="rtc-call-msg-sender" x-text="msg.sender || 'User'"></div>
-                    </template>
-                    <div :class="['rtc-call-msg-bubble', msg.sender_id === callOwnUserId ? 'own' : 'other']"
-                         x-text="msg.is_encrypted ? '🔒 Encrypted message' : (msg.body || (msg.metadata ? '📎 Attachment' : ''))">
-                    </div>
-                    <div class="rtc-call-msg-time" x-text="callFormatTime(msg.created_at)"></div>
-                  </div>
-                </template>
-              </div>
-            </template>
-          </div>
-
-          <!-- Note: No separate input here — use the Support Chat panel to send messages during the call -->
-          <div style="border-top:1px solid var(--border,rgba(0,0,0,.08));padding:10px 14px;flex-shrink:0;text-align:center;">
-            <span style="font-size:.72rem;color:var(--txt-3,#9ca3af);">💬 Use the support chat to send messages</span>
-          </div>
-
-        </div><!-- /.rtc-chat-panel -->
 
         </div><!-- /.rtc-call-container -->
       </template>
