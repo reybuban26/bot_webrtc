@@ -1526,7 +1526,7 @@
 </div>
 
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
-<script src="{{ asset('js/webrtc.js') }}?v=48"></script>
+<script src="{{ asset('js/webrtc.js') }}?v=49"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
 <script src="{{ asset('js/support.js') }}?v=51"></script>
 <script>
