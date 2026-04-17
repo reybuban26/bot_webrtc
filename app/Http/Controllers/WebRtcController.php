@@ -147,18 +147,21 @@ class WebRtcController extends Controller
 
         $channelName = $validated['channel'];
         
-        // Use 0 as UID to allow the Agora SDK to assign one automatically
-        $uid = '0';
+        // FIX: Tanggalin ang quotes para maging totoong Integer. 
+        // 0 acts as a wildcard for all Integer UIDs.
+        $uid = 0; 
         
         // Privilege expires in an hour
         $privilegeExpiredTs = now()->timestamp + 3600;
 
         $factory = new \Monyxie\Agora\TokenBuilder\TokenFactory($appId, $appCertificate);
-        $token = $factory->create($channelName, $uid, null, $privilegeExpiredTs);
+        
+        // Force cast to (int) para sigurado tayong Integer ang mababasa ng Agora SDK
+        $token = $factory->create($channelName, (int)$uid, null, $privilegeExpiredTs);
 
         return response()->json([
             'token' => $token->toString(),
-            'uid'   => 0,
+            'uid'   => $uid,
         ]);
     }
 }
