@@ -89,6 +89,10 @@ window.supportApp = function () {
                 if (this.userRole === 'admin') return;
                 if (!this.threadId) return;
                 if (newVal === oldVal) return;
+                // Reset seen state when agent disconnects so blue checks don't persist
+                if (oldVal === 'active' && newVal !== 'active') {
+                    this.messagesSeen = false;
+                }
                 if (newVal === 'ended' || oldVal === 'ended') {
                     this.messages = [];
                     this.lastTs   = null;
@@ -329,8 +333,6 @@ window.supportApp = function () {
                 .listen('.message.seen', (e) => {
                     if (e.seenByUserId !== this.userId) {
                         this.messagesSeen = true;
-                        this.seenBy = e.seenByName;
-                        setTimeout(() => { this.seenBy = ''; }, 10000);
                     }
                 })
                 .listen('.system.message', (e) => {

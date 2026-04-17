@@ -1305,16 +1305,37 @@
                     <div class="sp-time" style="margin-bottom:3px;padding-right:4px;" x-text="formatTime(msg.created_at)"></div>
                     <div class="sp-bubble own">
                       <span x-text="msg.body"></span>
-                      <!-- ✓ Gray check (message sent but not seen) -->
-                      <span class="sp-msg-status">
-                        <template x-if="!messagesSeen">
-                          <span>
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                              <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                          </span>
-                        </template>
-                      </span>
+                      <!-- Check mark: only on the last own message -->
+                      <template x-if="messages.filter(m => isOwnMessage(m)).slice(-1)[0]?.id === msg.id">
+                        <span class="sp-msg-status">
+                          <!-- Blue ✓✓ = seen -->
+                          <template x-if="messagesSeen">
+                            <span>
+                              <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                                <path d="M1 5l3 3L9 1" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M5 5l3 3L13 1" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            </span>
+                          </template>
+                          <!-- Gray ✓✓ = sent + partner online -->
+                          <template x-if="!messagesSeen && partnerOnline">
+                            <span>
+                              <svg width="16" height="10" viewBox="0 0 16 10" fill="none">
+                                <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M5 5l3 3L13 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            </span>
+                          </template>
+                          <!-- Gray ✓ = sent, partner offline -->
+                          <template x-if="!messagesSeen && !partnerOnline">
+                            <span>
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                <path d="M1 5l3 3L9 1" stroke="rgba(255,255,255,0.5)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            </span>
+                          </template>
+                        </span>
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -1453,13 +1474,6 @@
         </div>
       </template>
 
-      <div x-show="seenBy" x-transition.opacity
-             style="text-align: center; font-size: .65rem;
-                    color: var(--txt-3); opacity: 0.5;
-                    padding: 0 4px 8px;">
-            ✓✓ <span x-text="seenBy"></span>
-        </div>
-
       <div x-show="typingText"
             x-transition.opacity
             style="padding: 4px 14px 6px; font-size: .72rem; color: var(--txt-3); display: flex; align-items: center; gap: 6px;">
@@ -1572,7 +1586,7 @@
 <script src="{{ asset('js/chatbot.js') }}?v=29"></script>
 <script src="{{ asset('js/webrtc.js') }}?v=44"></script>
 <script src="{{ asset('js/crypto.js') }}?v=2"></script>
-<script src="{{ asset('js/support.js') }}?v=49"></script>
+<script src="{{ asset('js/support.js') }}?v=51"></script>
 <script>
   // Cross-tab auto-logout
   window.addEventListener('storage', function(e) {
